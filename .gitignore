@@ -1,0 +1,5 @@
+/build/
+/dist/
+/fangxu-file-transfer
+.DS_Store
+*.log

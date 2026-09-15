@@ -1,0 +1,5 @@
+#!/bin/sh
+
+transfer_app_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+/usr/bin/nohup "$transfer_app_dir/fangxu-file-transfer-bin" >/dev/null 2>&1 &
+exit 0
