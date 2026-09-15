@@ -16,7 +16,9 @@ echo "Building Windows x86-64…"
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags=-s \
   -o "$transfer_stage_dir/方序传文件-Windows/Fangxu-File-Transfer.exe" "$transfer_source_dir"
 cp "$transfer_source_dir/packaging/windows/双击运行.bat" "$transfer_stage_dir/方序传文件-Windows/双击运行.bat"
-cp "$transfer_source_dir/README.md" "$transfer_stage_dir/方序传文件-Windows/使用说明.md"
+cp "$transfer_source_dir/README.md" "$transfer_stage_dir/方序传文件-Windows/README.md"
+cp "$transfer_source_dir/README_EN.md" "$transfer_stage_dir/方序传文件-Windows/README_EN.md"
+cp "$transfer_source_dir/LICENSE" "$transfer_stage_dir/方序传文件-Windows/LICENSE"
 
 echo "Building Linux x86-64 and ARM64…"
 for transfer_arch in amd64 arm64; do
@@ -25,7 +27,9 @@ for transfer_arch in amd64 arm64; do
   CGO_ENABLED=0 GOOS=linux GOARCH="$transfer_arch" go build -trimpath -ldflags=-s \
     -o "$transfer_linux_package/fangxu-file-transfer" "$transfer_source_dir"
   cp "$transfer_source_dir/packaging/linux/双击运行.sh" "$transfer_linux_package/双击运行.sh"
-  cp "$transfer_source_dir/README.md" "$transfer_linux_package/使用说明.md"
+  cp "$transfer_source_dir/README.md" "$transfer_linux_package/README.md"
+  cp "$transfer_source_dir/README_EN.md" "$transfer_linux_package/README_EN.md"
+  cp "$transfer_source_dir/LICENSE" "$transfer_linux_package/LICENSE"
   chmod +x "$transfer_linux_package/fangxu-file-transfer" "$transfer_linux_package/双击运行.sh"
   tar -C "$transfer_stage_dir" -czf "$transfer_dist_dir/Fangxu-File-Transfer-Linux-$transfer_arch.tar.gz" \
     "Fangxu-File-Transfer-Linux-$transfer_arch"

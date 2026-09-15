@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -676,5 +677,72 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLANAddressFiltering(t *testing.T) {
+	for _, tc := range []struct {
+		name, cidr string
+		flags      net.Flags
+		usable     bool
+	}{
+		{"en0", "192.168.1.8/24", net.FlagUp, true},
+		{"eth0", "10.0.0.8/24", net.FlagUp, true},
+		{"wlan0", "172.16.2.8/24", net.FlagUp, true},
+		{"en0", "8.8.8.8/24", net.FlagUp, true},
+		{"en0", "192.168.1.8/24", 0, false},
+		{"lo0", "127.0.0.1/8", net.FlagUp | net.FlagLoopback, false},
+		{"utun3", "10.0.0.8/24", net.FlagUp, false},
+		{"docker0", "172.17.0.1/16", net.FlagUp, false},
+		{"vEthernet (WSL)", "172.20.0.1/20", net.FlagUp, false},
+		{"VMware Network Adapter VMnet8", "192.168.8.1/24", net.FlagUp, false},
+		{"bridge100", "192.168.64.1/24", net.FlagUp, false},
+		{"awdl0", "192.168.1.8/24", net.FlagUp, false},
+		{"en0", "10.0.0.8/24", net.FlagUp | net.FlagPointToPoint, false},
+		{"en0", "169.254.1.8/16", net.FlagUp, false},
+		{"en0", "100.100.1.8/10", net.FlagUp, false},
+		{"en0", "198.18.0.8/15", net.FlagUp, false},
+		{"en0", "192.0.2.8/24", net.FlagUp, false},
+		{"en0", "0.1.2.3/8", net.FlagUp, false},
+		{"en0", "224.0.0.1/24", net.FlagUp, false},
+		{"en0", "240.0.0.1/24", net.FlagUp, false},
+		{"en0", "192.168.1.0/24", net.FlagUp, false},
+		{"en0", "192.168.1.255/24", net.FlagUp, false},
+		{"en0", "192.168.1.0/31", net.FlagUp, true},
+		{"en0", "192.168.1.8/32", net.FlagUp, true},
+		{"en0", "fe80::1/64", net.FlagUp, false},
+	} {
+		t.Run(tc.name+"/"+tc.cidr, func(t *testing.T) {
+			ip, network, err := net.ParseCIDR(tc.cidr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, usable := lanAddressScore(net.Interface{Name: tc.name, Flags: tc.flags}, ip, network, nil)
+			if usable != tc.usable {
+				t.Fatalf("usable=%v, want %v", usable, tc.usable)
+			}
+		})
+	}
+}
+
+func TestLANAddressPreference(t *testing.T) {
+	preferred := net.ParseIP("10.0.0.8")
+	score := func(name, address string) int {
+		t.Helper()
+		ip, network, err := net.ParseCIDR(address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, usable := lanAddressScore(net.Interface{Name: name, Flags: net.FlagUp}, ip, network, preferred)
+		if !usable {
+			t.Fatalf("unexpectedly filtered %s", address)
+		}
+		return value
+	}
+	values := []int{score("en0", "10.0.0.8/24"), score("wlan0", "192.168.1.8/24"), score("eth0", "172.16.0.8/24"), score("unknown0", "192.168.2.8/24"), score("en1", "8.8.8.8/24")}
+	for i := 1; i < len(values); i++ {
+		if values[i-1] <= values[i] {
+			t.Fatalf("incorrect preference order: %v", values)
+		}
 	}
 }
