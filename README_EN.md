@@ -34,6 +34,20 @@ On Windows, allow firewall access on private networks. If macOS blocks the app o
 Computer folder <──same Wi-Fi / HTTP──> Phone or tablet browser
 ```
 
+## Screenshots
+
+### Desktop sharing settings
+
+Select a shared folder, view the service status and LAN address, and scan the QR code from a phone or tablet to connect.
+
+![Desktop sharing settings: shared folder, access token protection, service status and connection QR code](./assets/screenshots/desktop-settings.png)
+
+### File uploads and downloads
+
+Upload files in a browser, search and sort the list, filter by type and format, or select multiple files for batch download.
+
+![File browser: uploads, search, type and format filters, sorting and batch downloads](./assets/screenshots/file-browser.png)
+
 ## Features
 
 - **Two-way direct transfer:** any file type, without third-party servers. Uploads with duplicate names receive a numbered suffix instead of overwriting files.
