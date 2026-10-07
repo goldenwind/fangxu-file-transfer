@@ -3,3 +3,9 @@
 /fangxu-file-transfer
 .DS_Store
 *.log
+/node_modules/
+/desktop-dist/
+/src-tauri/target/
+/src-tauri/binaries/
+/src-tauri/gen/
+/release-assets/

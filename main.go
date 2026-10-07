@@ -86,6 +86,7 @@ type server struct {
 	protected     bool
 	stopToken     string
 	instanceToken string
+	desktop       bool
 	shutdown      func()
 	page          *template.Template
 }
@@ -100,7 +101,12 @@ func run() error {
 	directory := flag.String("dir", "", "要共享的目录（默认：Downloads）")
 	listen := flag.String("listen", defaultListen, "监听地址")
 	noOpen := flag.Bool("no-open", false, "启动后不打开电脑浏览器")
+	desktop := flag.Bool("desktop", false, "通过标准输入输出接受桌面客户端控制")
+	configPath := flag.String("config", "", "桌面客户端设置文件")
 	flag.Parse()
+	if *desktop {
+		return runDesktop(os.Stdin, os.Stdout, *configPath)
+	}
 
 	statePath, err := serviceStatePath()
 	if err != nil {
@@ -229,6 +235,10 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {
+	if s.desktop {
+		http.Error(w, "Use the desktop client to stop sharing", http.StatusForbidden)
+		return
+	}
 	if r.Method != http.MethodPost || !isLoopbackRequest(r) || subtle.ConstantTimeCompare([]byte(r.FormValue("stop_token")), []byte(s.stopToken)) != 1 {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
@@ -320,7 +330,7 @@ func (s *server) index(port int) http.HandlerFunc {
 			http.Error(w, "Invalid or missing sharing link", http.StatusUnauthorized)
 			return
 		}
-		admin := isLoopbackRequest(r)
+		admin := isLoopbackRequest(r) && !s.desktop
 		protected := s.isProtected()
 		root, resolvedRoot := s.roots()
 		files, err := scanFiles(root, resolvedRoot)
@@ -356,6 +366,10 @@ func (s *server) index(port int) http.HandlerFunc {
 }
 
 func (s *server) changeDirectory(w http.ResponseWriter, r *http.Request) {
+	if s.desktop {
+		http.Error(w, "Use the desktop client to change settings", http.StatusForbidden)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -443,6 +457,10 @@ func chooseDirectory() (string, error) {
 }
 
 func (s *server) changeSecurity(w http.ResponseWriter, r *http.Request) {
+	if s.desktop {
+		http.Error(w, "Use the desktop client to change settings", http.StatusForbidden)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1285,7 +1303,7 @@ const indexHTML = `<!doctype html>
 <style>
 :root{--bg:#f3f4f7;--card:#fff;--text:#172039;--muted:#70778a;--line:#dfe2e9;--line-strong:#cbd0dc;--accent:#3446b7;--accent-soft:#f3f5ff;--success:#319364;--danger:#a83a3a}
 *{box-sizing:border-box}body{margin:0;padding:20px;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif}
-button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-height:calc(100vh - 40px);margin:0 auto}.hero{margin-bottom:28px}.brand{display:flex;align-items:center;gap:16px;margin-bottom:22px;padding:0 0 16px;border-bottom:1px solid var(--line)}.brand-home{display:flex;align-items:center;gap:inherit;min-width:0;color:inherit;text-decoration:none;border-radius:5px}.brand-home:focus-visible{outline:2px solid var(--accent);outline-offset:5px}.brand-logo{display:block;width:72px;height:72px;flex:none;object-fit:contain;transform:scale(1.45);transform-origin:center}.brand-copy{min-width:0}.brand h1{margin:0;color:var(--text);font-size:27px;font-weight:760;letter-spacing:-.03em}.tagline{margin:3px 0 0;color:var(--muted);font-size:13px;font-weight:600;letter-spacing:.12em}
+button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-height:calc(100vh - 40px);margin:0 auto}.hero{margin-bottom:28px}.brand{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:16px;margin-bottom:22px;padding:0 0 16px;border-bottom:1px solid var(--line)}.brand-home{display:flex;align-items:center;gap:inherit;min-width:0;color:inherit;text-decoration:none;border-radius:5px}.brand-home:focus-visible{outline:2px solid var(--accent);outline-offset:5px}.brand-logo{display:block;width:72px;height:72px;flex:none;object-fit:contain;transform:scale(1.45);transform-origin:center}.brand-copy{min-width:0}.brand h1{margin:0;color:var(--text);font-size:27px;font-weight:760;letter-spacing:-.03em}.tagline{margin:3px 0 0;color:var(--muted);font-size:13px;font-weight:600;letter-spacing:.12em}
 .admin-panel{padding:20px;border:1px solid var(--line);border-radius:6px;background:var(--card);box-shadow:0 4px 14px rgba(23,32,57,.04)}.admin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.admin-copy{min-width:0}.admin-copy h2{margin:0 0 7px;color:var(--text);font-size:22px;letter-spacing:-.01em}.admin-copy p{margin:0;color:var(--muted);line-height:1.65}.service{display:flex;flex:none;align-items:center;justify-content:flex-end;gap:11px;flex-wrap:wrap}.service-state{display:inline-flex;align-items:center;color:#2c7250;font-size:14px;font-weight:700;white-space:nowrap}.service-dot{width:7px;height:7px;margin-right:7px;border-radius:50%;background:var(--success)}.service form{margin:0}.token-control{display:flex;align-items:center;gap:6px;padding-left:11px;border-left:1px solid var(--line)}.token-label{color:#454d62;font-size:13px;font-weight:680;white-space:nowrap}.token-help{position:relative;display:inline-flex}.token-help-trigger{display:grid;width:18px;height:18px;padding:0;place-items:center;border:1px solid #c9ceda;border-radius:50%;background:#fff;color:#737b8f;font-size:12px;font-weight:750;line-height:1}.token-help-trigger:hover,.token-help-trigger:focus{border-color:var(--accent);color:var(--accent);outline:none}.token-help-tip{position:absolute;z-index:10;top:calc(100% + 9px);right:-72px;width:280px;padding:10px 12px;border:1px solid #d8dce6;border-radius:5px;background:#20283c;color:#fff;font-size:12px;font-weight:500;line-height:1.6;box-shadow:0 8px 24px rgba(23,32,57,.18);opacity:0;pointer-events:none;transform:translateY(-3px);transition:opacity .15s,transform .15s;visibility:hidden}.token-help-tip:before{position:absolute;right:76px;top:-5px;width:9px;height:9px;background:#20283c;content:"";transform:rotate(45deg)}.token-help:hover .token-help-tip,.token-help:focus-within .token-help-tip{opacity:1;transform:translateY(0);visibility:visible}.token-switch{position:relative;display:block;width:38px;height:22px;padding:0;border:1px solid #b9bfcc;border-radius:11px;background:#c7cbd4;transition:border-color .15s,background .15s}.token-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(23,32,57,.25);transition:transform .15s}.token-switch:hover,.token-switch:focus{border-color:#7c87bd;outline:2px solid rgba(52,70,183,.12);outline-offset:2px}.token-switch.on{border-color:var(--accent);background:var(--accent)}.token-switch.on .token-switch-knob{transform:translateX(16px)}.stop{margin:0;padding:8px 12px;border:1px solid #d39b9b;border-radius:5px;background:#fff;color:var(--danger);font-size:14px;font-weight:650}.stop:hover,.stop:focus{border-color:var(--danger);background:#fff8f8;outline:none}
 .directory{margin-top:16px;padding-top:14px;border-top:1px solid #e7e9ee}.directory label{display:block;margin-bottom:7px;color:var(--muted);font-size:13px;font-weight:650}.directory-note{margin-left:7px;color:#8a90a0;font-weight:500}.directory-row{display:flex;align-items:stretch;gap:8px}.directory input[type=text]{min-width:0;flex:1;padding:9px 11px;border:1px solid var(--line-strong);border-radius:5px;background:#fff;color:var(--text);font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}.directory input[type=text]:focus{border-color:var(--accent);outline:2px solid rgba(52,70,183,.1)}.directory-actions{display:flex;gap:8px}.directory button{padding:9px 12px;border:1px solid var(--line-strong);border-radius:5px;background:#fff;color:var(--accent);font-size:13px;font-weight:700;white-space:nowrap}.directory button:hover,.directory button:focus{border-color:var(--accent);outline:none}.directory .apply{border-color:var(--accent);background:var(--accent);color:#fff}.status{margin:0 0 14px;padding:9px 11px;border-left:3px solid var(--success);background:#f3faf6;color:#2c7250;font-size:13px}
 .addresses{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:10px;margin-top:14px}.address{display:flex;align-items:center;gap:14px;min-width:0;padding:13px;border:1px solid var(--line);border-radius:5px;background:#f7f8fb}.address img{display:block;flex:none;width:104px;height:104px;padding:4px;border:1px solid #e5e7ec;background:#fff;object-fit:contain}.address-info{min-width:0;flex:1}.address-label{display:block;margin-bottom:5px;color:var(--muted);font-size:12px}.address code{display:block;color:#29345f;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.address button{margin:10px 0 0;padding:7px 11px;border:1px solid var(--line-strong);border-radius:4px;background:#fff;color:var(--accent);font-size:13px;font-weight:700}.address button:hover,.address button:focus{border-color:var(--accent);outline:none}.wechat-warning{display:block;margin:0 0 14px;padding:14px 16px;border-left:3px solid #d78b24;background:#fff9ee;color:#5e461f}.wechat-warning strong,.wechat-warning span{display:block}.wechat-warning strong{margin-bottom:3px;color:#7a5015}.wechat-warning span{font-size:13px;line-height:1.65}.mobile-intro{flex:1;min-width:0;max-width:170px;margin:0 0 0 auto;color:var(--muted);font-size:13px;line-height:1.6;text-align:right;text-wrap:balance}
@@ -1296,9 +1314,19 @@ button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-heigh
 
 .support{margin:0 0 26px;padding:20px;border:1px solid var(--line);border-radius:6px;background:var(--card)}.support-heading{margin-bottom:16px}.support-heading h2{margin:0 0 6px;font-size:22px}.support-heading p{margin:0;color:var(--muted);line-height:1.7}.support-grid{display:flex;flex-wrap:wrap;gap:12px}.support-card{display:flex;flex:1 1 240px;align-items:center;min-width:0;padding:14px;border:1px solid var(--line);border-radius:5px;background:var(--card)}.support-card img{display:block;flex:none;width:116px;height:116px;padding:4px;border:1px solid var(--line);background:#fff;object-fit:contain}.support-card-copy{min-width:0;margin-left:14px}.support-card-title{display:block;font-size:17px;line-height:1.4}.support-card-note{display:block;margin-top:6px;color:var(--muted);font-size:13px;line-height:1.55}.support-card-public{border-color:var(--line-strong);background:var(--accent-soft)}
 @media(max-width:600px){.support{margin-bottom:20px;padding:15px}.support-card{flex-basis:100%;padding:11px}.support-card img{width:104px;height:104px}.support-card-copy{margin-left:12px}}
-.header-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex:none}.github-link{display:inline-flex;align-items:center;gap:7px;padding:9px 12px;border-radius:5px;background:var(--text);color:#fff;font-size:14px;font-weight:700;text-decoration:none;white-space:nowrap}.github-link:hover,.github-link:focus-visible{background:var(--accent)}.github-link svg{width:18px;height:18px;fill:currentColor}.language-switch{display:flex;padding:3px;border:1px solid var(--line);border-radius:5px;background:#fff}.language-button{padding:6px 10px;border:0;border-radius:3px;background:transparent;color:var(--muted);font-size:13px;font-weight:700}.language-button.active{background:var(--accent);color:#fff}.mobile-intro{margin-left:auto} @media(max-width:600px){.brand{flex-wrap:wrap}.header-actions{gap:7px}.github-link{padding:8px 9px;font-size:13px}.language-button{padding:6px 8px}.mobile-intro{order:3;flex-basis:100%;max-width:none;text-align:left;margin:0}.brand h1{font-size:21px}.tagline{letter-spacing:.04em}} @media(max-width:440px){.header-actions{width:100%;justify-content:flex-end}.brand-copy{flex:1}.brand h1{font-size:23px}}
+.header-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex:none}.language-switch{display:flex;padding:3px;border:1px solid var(--line);border-radius:5px;background:#fff}.language-button{padding:6px 10px;border:0;border-radius:3px;background:transparent;color:var(--muted);font-size:13px;font-weight:700}.language-button.active{background:var(--accent);color:#fff}.mobile-intro{grid-column:1/-1;max-width:none;text-align:left;margin:0} @media(max-width:600px){
+.brand{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 8px}
+.brand-home{gap:8px;overflow:hidden}
+.brand-logo{width:48px;height:48px}
+.brand-copy{flex:1;min-width:0}
+.brand h1{font-size:clamp(16px,4.8vw,21px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tagline{display:block;font-size:10px;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-actions{gap:6px;margin-left:0}
+.language-button{padding:6px;font-size:12px}
+.mobile-intro{grid-column:1/-1;max-width:none;text-align:left;margin:0}
+}
 </style></head><body><main>
-<section class="hero"><header class="brand"><a class="brand-home" href="/{{if .Protected}}?token={{.AccessToken | urlquery}}{{end}}" aria-label="方序传文件首页，重置筛选" data-i18n-aria-label="方序传文件首页，重置筛选"><img class="brand-logo" src="/assets/logo.png" alt=""><span class="brand-copy"><h1 data-i18n="方序传文件">方序传文件</h1><span class="tagline" data-i18n="方寸之间，传递有序">方寸之间，传递有序</span></span></a>{{if not .Admin}}<span class="mobile-intro" data-i18n="轻点文件，即可保存到当前设备。">轻点文件，即可保存到当前设备。</span>{{end}}<div class="header-actions"><a class="github-link" href="https://github.com/goldenwind/fangxu-file-transfer" target="_blank" rel="noopener noreferrer" aria-label="GitHub 开源项目" data-i18n-aria-label="GitHub 开源项目"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.4-2.7 5.38-5.28 5.67.42.36.79 1.06.79 2.14v3.18c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg><span data-i18n="GitHub 开源">GitHub 开源</span></a><div class="language-switch" role="group" aria-label="语言 / Language"><button class="language-button" type="button" data-language-button="zh" onclick="setLanguage('zh')">中文</button><button class="language-button" type="button" data-language-button="en" onclick="setLanguage('en')">EN</button></div></div></header>
+<section class="hero"><header class="brand"><a class="brand-home" href="/{{if .Protected}}?token={{.AccessToken | urlquery}}{{end}}" aria-label="方序传文件首页，重置筛选" data-i18n-aria-label="方序传文件首页，重置筛选"><img class="brand-logo" src="/assets/logo.png" alt=""><span class="brand-copy"><h1 data-i18n="方序传文件">方序传文件</h1><span class="tagline" data-i18n="方寸之间，传递有序">方寸之间，传递有序</span></span></a><div class="header-actions"><div class="language-switch" role="group" aria-label="语言 / Language"><button class="language-button" type="button" data-language-button="zh" onclick="setLanguage('zh')">中文</button><button class="language-button" type="button" data-language-button="en" onclick="setLanguage('en')">EN</button></div></div>{{if not .Admin}}<span class="mobile-intro" data-i18n="轻点文件，即可保存到当前设备。">轻点文件，即可保存到当前设备。</span>{{end}}</header>
 {{if .WeChat}}<aside class="wechat-warning" role="alert"><strong data-i18n="微信内无法下载文件">微信内无法下载文件</strong><span data-i18n="请点击右上角“···”，选择“在浏览器打开”。iPhone 可使用 Safari，Android 可使用系统浏览器，然后再点击文件下载。">请点击右上角“···”，选择“在浏览器打开”。iPhone 可使用 Safari，Android 可使用系统浏览器，然后再点击文件下载。</span></aside>{{end}}
 {{if .Admin}}<div class="admin-panel"><div class="admin-head"><div class="admin-copy"><h2 data-i18n="电脑端传文件设置">电脑端传文件设置</h2><p><strong data-i18n="连接提醒：">连接提醒：</strong><span data-i18n="让手机或平板与电脑连接同一 Wi-Fi，然后扫描下方二维码。">让手机或平板与电脑连接同一 Wi-Fi，然后扫描下方二维码。</span></p></div><div class="service"><span class="service-state"><span class="service-dot"></span><span data-i18n="服务运行中">服务运行中</span></span><form class="token-control" method="post" action="/security"><input type="hidden" name="admin_token" value="{{.AdminToken}}"><input type="hidden" name="enabled" value="{{if .Protected}}false{{else}}true{{end}}"><span class="token-label" data-i18n="访问令牌保护">访问令牌保护</span><span class="token-help"><button class="token-help-trigger" type="button" aria-label="访问令牌保护说明" data-i18n-aria-label="访问令牌保护说明" aria-describedby="token-help-tip">?</button><span class="token-help-tip" id="token-help-tip" role="tooltip" data-i18n="开启后，访问地址和二维码会加入专属令牌，只有拿到完整链接的人才能查看和下载文件；关闭后，同一局域网内的设备可直接访问。">开启后，访问地址和二维码会加入专属令牌，只有拿到完整链接的人才能查看和下载文件；关闭后，同一局域网内的设备可直接访问。</span></span><button class="token-switch {{if .Protected}}on{{end}}" type="submit" role="switch" aria-checked="{{if .Protected}}true{{else}}false{{end}}" aria-label="{{if .Protected}}关闭访问令牌保护{{else}}开启访问令牌保护{{end}}" data-i18n-aria-label="{{if .Protected}}关闭访问令牌保护{{else}}开启访问令牌保护{{end}}"><span class="token-switch-knob"></span></button></form><form method="post" action="/stop" onsubmit="return confirm(t('确定停止方序传文件服务吗？'))"><input type="hidden" name="stop_token" value="{{.StopToken}}"><button class="stop" type="submit" data-i18n="停止传输服务">停止传输服务</button></form></div></div>
 <form class="directory" method="post" action="/directory"><input type="hidden" name="admin_token" value="{{.AdminToken}}"><label for="shared-directory"><span data-i18n="共享目录：">共享目录：</span><span class="directory-note" data-i18n="该目录下的文件可在其他设备访问和下载">该目录下的文件可在其他设备访问和下载</span></label><div class="directory-row"><input id="shared-directory" type="text" name="path" value="{{.Root}}" autocomplete="off" spellcheck="false"><span class="directory-actions"><button type="submit" name="action" value="choose" data-i18n="选择文件夹…">选择文件夹…</button><button class="apply" type="submit" name="action" value="apply" data-i18n="应用路径">应用路径</button></span></div></form>
@@ -1333,11 +1361,9 @@ button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-heigh
 <p class="note" data-i18n="方序传文件 · 文件只在你的局域网内流转，不会上传到云端。请勿将访问地址分享给不信任的人。">方序传文件 · 文件只在你的局域网内流转，不会上传到云端。请勿将访问地址分享给不信任的人。</p>
 </main><script>
 const translations = {
-  "GitHub \u5f00\u6e90\u9879\u76ee": "GitHub repository",
   "\u65b9\u5e8f\u4f20\u6587\u4ef6": "Fangxu File Transfer",
   "\u65b9\u5bf8\u4e4b\u95f4\uff0c\u4f20\u9012\u6709\u5e8f": "FILES IN ORDER, WITHIN REACH",
   "\u8f7b\u70b9\u6587\u4ef6\uff0c\u5373\u53ef\u4fdd\u5b58\u5230\u5f53\u524d\u8bbe\u5907\u3002": "Tap a file to save it to this device.",
-  "GitHub \u5f00\u6e90": "GitHub",
   "\u5fae\u4fe1\u5185\u65e0\u6cd5\u4e0b\u8f7d\u6587\u4ef6": "Downloads are unavailable in WeChat",
   "\u8bf7\u70b9\u51fb\u53f3\u4e0a\u89d2\u201c\u00b7\u00b7\u00b7\u201d\uff0c\u9009\u62e9\u201c\u5728\u6d4f\u89c8\u5668\u6253\u5f00\u201d\u3002iPhone \u53ef\u4f7f\u7528 Safari\uff0cAndroid \u53ef\u4f7f\u7528\u7cfb\u7edf\u6d4f\u89c8\u5668\uff0c\u7136\u540e\u518d\u70b9\u51fb\u6587\u4ef6\u4e0b\u8f7d\u3002": "Tap \u201c\u00b7\u00b7\u00b7\u201d in the top right and choose \u201cOpen in browser\u201d. Use Safari on iPhone or your system browser on Android, then tap a file to download.",
   "\u7535\u8111\u7aef\u4f20\u6587\u4ef6\u8bbe\u7f6e": "Desktop transfer settings",

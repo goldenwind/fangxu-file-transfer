@@ -7,28 +7,28 @@
 
 A free, open-source **cross-platform LAN file transfer tool**. Share a folder from a Windows, macOS or Linux computer. Scan a QR code on Android, iPhone or iPad to upload and download files in a browser, with no mobile app, account or cloud storage required.
 
-Use it to transfer photos, documents, ebooks, videos and installers between your computer and phone, or temporarily share files over the same Wi-Fi network. The application interface is currently in Chinese.
+Use it to transfer photos, documents, ebooks, videos and installers between your computer and phone, or temporarily share files over the same Wi-Fi network. The desktop client and file browser both support Chinese and English, with a language switch in the top-right corner.
 
 ## Download
 
-Get a package from [GitHub Releases](https://github.com/goldenwind/fangxu-file-transfer/releases/latest), extract it and launch. Go is not required.
+[Download the latest desktop release](https://github.com/goldenwind/fangxu-file-transfer/releases/latest). Built with Tauri 2, each installer includes the Go transfer component. GitHub Actions builds the platform packages and publishes `SHA256SUMS.txt` for verification.
 
 | System | Package | Launch |
 | --- | --- | --- |
-| Windows x86-64 | `Fangxu-File-Transfer-Windows-amd64.zip` | Double-click `双击运行.bat` or `Fangxu-File-Transfer.exe` |
-| macOS Intel / Apple Silicon | `Fangxu-File-Transfer-macOS.zip` | Double-click `方序传文件.app` |
-| Linux x86-64 | `Fangxu-File-Transfer-Linux-amd64.tar.gz` | Double-click `双击运行.sh` |
-| Linux ARM64 | `Fangxu-File-Transfer-Linux-arm64.tar.gz` | Double-click `双击运行.sh` |
+| Windows x86-64 | `.exe` installer | Install and launch Fangxu File Transfer |
+| macOS 12.3+ Intel / Apple Silicon | Separate `.dmg` for each architecture | Drag to Applications and launch |
+| Linux x86-64 | `.deb` / `.AppImage` | Install or run AppImage |
+| Linux ARM64 | `.deb` | Install and launch |
 
-On Windows, allow firewall access on private networks. If macOS blocks the app on first launch, right-click it and choose Open. Your Linux file manager may require enabling execution of text scripts.
+On Windows, allow firewall access on private networks when starting the service. For unsigned macOS builds, right-click the app and choose Open if blocked. AppImage requires executable permission.
 
 ## Quick start
 
-1. Launch the program on your computer. The control page opens automatically.
-2. Select and apply a shared folder; the default is your user's `Downloads` folder.
-3. Connect your phone and computer to the same Wi-Fi. On a network shared with others, enable access token protection (`访问令牌保护`) first.
+1. Open the desktop client. The service starts automatically by default, sharing your user's `Downloads`.
+2. Save a shared folder in Settings (`传输设置`). Set a port or token protection, or disable service auto-start.
+3. Connect your devices to the same Wi-Fi. If the service is stopped, click Start service (`启动服务`). Enable token protection on networks shared with others.
 4. Scan the QR code on your phone and open it in the system browser. Tap a file to download, or select multiple files to upload to your computer.
-5. Click Stop transfer service (`停止传输服务`) on the computer page when finished. Wait for shutdown confirmation before closing the page.
+5. Click Stop service (`停止服务`) when finished, or quit the client to stop sharing automatically.
 
 ```text
 Computer folder <──same Wi-Fi / HTTP──> Phone or tablet browser
@@ -36,26 +36,38 @@ Computer folder <──same Wi-Fi / HTTP──> Phone or tablet browser
 
 ## Screenshots
 
-### Desktop sharing settings
+### Desktop client · File transfer
 
-Select a shared folder, view the service status and LAN address, and scan the QR code from a phone or tablet to connect.
+The service starts with the app by default. View its status, LAN address, QR code and shared folder. GitHub and language controls are in the top-right corner; Product Feedback is in the sidebar.
 
-![Desktop sharing settings: shared folder, access token protection, service status and connection QR code](./assets/screenshots/desktop-settings.png)
+![Desktop file transfer: service status, QR code and shared folder](./assets/screenshots/desktop-transfer.png)
 
-### File uploads and downloads
+### Desktop client · Settings
 
-Upload files in a browser, search and sort the list, filter by type and format, or select multiple files for batch download.
+Choose the shared folder, port and token protection. Service auto-start is enabled by default, and quitting the app stops sharing.
 
-![File browser: uploads, search, type and format filters, sorting and batch downloads](./assets/screenshots/file-browser.png)
+![Desktop settings: folder, port, token protection and service auto-start](./assets/screenshots/desktop-settings.png)
+
+### External browser · File manager
+
+Scan the QR code or open the LAN address to upload files, search, filter, sort or download multiple files. Chinese and English are available on the same page.
+
+![External browser file manager: uploads, filters, sorting and batch downloads](./assets/screenshots/file-browser.jpg)
+
+Screenshots use a dedicated sample folder and the client's default window size.
 
 ## Features
 
 - **Two-way direct transfer:** any file type, without third-party servers. Uploads with duplicate names receive a numbered suffix instead of overwriting files.
 - **Folder sharing:** subfolder scanning, Chinese filenames, search, two-level file type filters, file counts, and sorting by time or name.
 - **Multiple uploads:** up to 100 files and 10 GB total per request; temporary files are cleaned up on failure. Downloads support HTTP resume.
-- **Desktop controls:** enter a folder path or use the system folder picker; switching folders refreshes the list immediately. View LAN addresses, QR codes and service status.
-- **Temporary sharing:** automatic free port selection and a single running instance. Launching again opens the existing service page.
+- **Desktop controls:** choose a folder, configure port and token protection, persist auto-start preferences, and view addresses, QR codes and service status in the native window.
+- **Temporary sharing:** start and stop sharing manually; quitting stops the service. A second launch focuses the existing window.
 - **Access tokens:** optionally restrict access to devices with the full link or new QR code. The web interface offers no deletion or renaming.
+
+## Product feedback
+
+Click **Product Feedback** at the bottom of the client sidebar, or open the [product feedback page](https://api.ip21.cn/products/10/feedback). Sign in on the webpage through the existing WeChat official-account flow, then submit a category, title, description, optional screenshot and contact email. File transfers remain free and require no account or membership. Opening feedback does not upload shared files. You can also use [GitHub Issues](https://github.com/goldenwind/fangxu-file-transfer/issues).
 
 ## Support & follow
 
@@ -74,7 +86,7 @@ Scan the official account QR code in WeChat for AI tools and productivity tips.
 ## Usage limits
 
 - Intended for temporary transfers on trusted local networks; no remote transfer, automatic sync or backup.
-- **Access token protection is off by default.** Each launch generates a new token and resets protection to off. Without protection, devices that can reach the service can browse, download and upload.
+- **Access token protection is off by default.** The client remembers your protection preference and generates a new token each time the service starts. Without protection, devices that can reach the service can browse, download and upload.
 - Tokens restrict access but do not encrypt transfers. The service uses HTTP; avoid transferring sensitive files on public Wi-Fi.
 - The shared folder and its non-hidden subfolders are accessible to visitors. Files and folders beginning with `.` are hidden. Use a dedicated folder; uploaded files also appear in the list.
 - Opening a file or installing an app depends on the receiving device's supported formats and system restrictions.
@@ -87,11 +99,26 @@ Scan the official account QR code in WeChat for AI tools and productivity tips.
 
 ## Run and build from source
 
-Requires Go 1.22+:
+Requires Node.js 22.12+, Go 1.22+, Rust stable and [Tauri system prerequisites](https://v2.tauri.app/start/prerequisites/):
 
 ```bash
 git clone https://github.com/goldenwind/fangxu-file-transfer.git
 cd fangxu-file-transfer
+npm ci
+npm run desktop:dev
+```
+
+Build the installer for the current operating system:
+
+```bash
+npm run desktop:build
+```
+
+Output is in `src-tauri/target/release/bundle/`. `./build-packages.sh` invokes the same desktop build. The Go component builds automatically. GitHub Actions builds macOS Intel / Apple Silicon, Windows x64 and Linux x64 / ARM64 packages. See [desktop development and packaging](./docs/desktop.md).
+
+The original Go CLI / browser edition remains available:
+
+```bash
 go run . --dir "/path/to/shared/folder"
 ```
 
@@ -104,10 +131,10 @@ go run . --dir "/path/to/shared/folder"
 ```bash
 go test ./...
 go build -o fangxu-file-transfer .
-./build-packages.sh
+./build-cli-packages.sh
 ```
 
-The packaging script creates Windows, macOS and Linux packages in `dist`. Building all packages requires macOS with `lipo`, `sips`, `codesign` and `ditto`.
+`build-cli-packages.sh` creates legacy CLI packages in `dist`. Building all CLI packages requires macOS with `lipo`, `sips`, `codesign` and `ditto`.
 
 ## License
 

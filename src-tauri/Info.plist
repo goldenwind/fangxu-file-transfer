@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>NSLocalNetworkUsageDescription</key><string>方序传文件需要通过局域网与手机、平板和其他电脑传输文件。</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>用于共享所选目录及接收上传的文件。</string>
+</dict></plist>

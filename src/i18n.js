@@ -1,0 +1,137 @@
+// Use the same language preference as the browser file page. Each WebView
+// stores it locally; no setting or unsaved form needs to be reloaded.
+export const languageStorageKey = 'fangxu-language';
+export const translations = {
+  '方序': 'Fangxu',
+  '传文件': 'File Transfer',
+  '方序传文件': 'Fangxu File Transfer',
+  '方序传文件首页': 'Fangxu File Transfer home',
+  '工作空间': 'Workspace',
+  '主导航': 'Main navigation',
+  'GitHub 开源项目': 'GitHub repository',
+  '文件传输': 'File Transfer',
+  '传输设置': 'Settings',
+  '产品反馈': 'Product Feedback',
+  '关于与帮助': 'About & Help',
+  '本机直传 · 免费开源': 'Local · Free & open source',
+  '正在读取本机设置…': 'Loading settings…',
+  '让文件，轻松抵达。': 'File transfer made simple.',
+  '电脑与手机连接同一 Wi-Fi，即可上传和下载。': 'Connect your devices to the same Wi-Fi to upload and download.',
+  '服务未启动': 'Stopped',
+  '服务运行中': 'Running',
+  '准备好开始传输了吗？': 'Ready to share files?',
+  '已准备好，等待设备连接': 'Ready for your devices',
+  '启动服务后，其他设备即可访问共享目录。': 'Start the service to share your folder with other devices.',
+  '正在端口 {port} 上共享文件，扫码即可开始。': 'Sharing on port {port}. Scan the code to get started.',
+  '启动服务': 'Start Service',
+  '停止服务': 'Stop Service',
+  '正在处理…': 'Working…',
+  '连接设备': 'Connect a Device',
+  '用手机系统相机或浏览器扫码': 'Scan with your phone camera or browser',
+  '共享目录': 'Shared Folder',
+  '修改': 'Change',
+  '此目录及其非隐藏子目录中的文件可被下载。上传的文件也会保存在这里。': 'Files in this folder and its visible subfolders are available to download. Uploads are saved here too.',
+  '在文件管理器中打开': 'Open in File Manager',
+  '文件在设备之间直接传递': 'Files go directly between devices',
+  '无需账号，无需网盘。退出客户端后，传输服务自动关闭。': 'No account or cloud storage. Quitting the app stops the service.',
+  '连接同一 Wi-Fi': 'Join the same Wi-Fi',
+  '启动服务并扫码': 'Start and scan',
+  '上传或下载文件': 'Upload or download',
+  '选择分享的内容，按你的习惯开始传输。': 'Choose what to share and how to start transferring.',
+  '请选择需要分享的文件夹，确认其中没有不希望公开的文件。': 'Choose a folder and make sure it contains only files you want to share.',
+  '选择文件夹': 'Choose Folder',
+  '监听端口': 'Listen Port',
+  '0 表示自动选择空闲端口。': 'Use 0 to pick an available port.',
+  '修改端口前需先停止服务。': 'Stop the service before changing the port.',
+  '访问令牌保护': 'Access Token Protection',
+  '开启后，其他设备需要完整链接或二维码才能访问文件。': 'Require the complete link or QR code to access shared files.',
+  '打开客户端时启动服务': 'Start Service When the App Opens',
+  '使用已保存的目录、端口与保护设置自动开始共享。': 'Start sharing with your saved folder, port and protection settings.',
+  '设置保存在这台电脑上。': 'Settings are stored on this computer.',
+  '保存设置': 'Save Settings',
+  '有未保存的修改': 'Unsaved changes',
+  '设置已保存': 'Settings saved',
+  '设置已保存。': 'Settings saved.',
+  '设置已保存，运行中的服务已应用修改。': 'Settings saved and applied to the running service.',
+  '服务使用 HTTP 传输，请在可信局域网中使用；令牌保护不加密文件内容。': 'HTTP transfers: use a trusted local network. Access tokens do not encrypt files.',
+  '方寸之间，传递有序。': 'Small space. Seamless sharing.',
+  '方序传文件 · v1.1.0 · 免费开源': 'Fangxu File Transfer · v1.1.0 · Free & open source',
+  '从电脑到手机，只需三步': 'From computer to phone in three steps',
+  '让电脑与接收设备连接同一 Wi-Fi 或局域网。': 'Connect your computer and the receiving device to the same Wi-Fi or local network.',
+  '在传输设置中选择共享目录，回到文件传输页面启动服务。': 'Choose a shared folder in Settings, then start the service from File Transfer.',
+  '接收设备扫描二维码，使用系统浏览器上传或下载文件。': 'Scan the QR code on the receiving device and use its browser to upload or download files.',
+  '遇到连接问题？': 'Having trouble connecting?',
+  '确认设备处于同一网络，检查 VPN、代理、防火墙及路由器的设备隔离设置。Windows 防火墙询问时，请允许专用网络访问。微信内无法下载时，请选择“在浏览器打开”。': 'Check that both devices are on the same network. Check your VPN, proxy, firewall and router device isolation settings. Allow private network access if Windows Firewall asks. If downloads fail in WeChat, choose “Open in Browser”.',
+  '传完之后': 'When you are done',
+  '点击“停止服务”或退出客户端，其他设备将无法继续访问。停止会中断正在进行的传输。每次重新启动服务都会生成新的访问令牌。': 'Stop the service or quit the app to end access from other devices. This interrupts active transfers. Restarting the service generates a new access token.',
+  '文件与隐私': 'Files and privacy',
+  '文件不会上传到第三方服务器。隐藏目录与以点开头的文件不会显示；同名上传自动追加序号。单次最多上传 100 个文件，总大小不超过 10 GB。': 'Files are never uploaded to third-party servers. Hidden folders and dotfiles are excluded. Duplicate upload names receive a number. Upload up to 100 files at a time, with a combined size of 10 GB.',
+  '本机服务未启动': 'Local service stopped',
+  '服务运行中 · 端口 {port} · {protection}': 'Running · Port {port} · {protection}',
+  '停止传输服务？': 'Stop the transfer service?',
+  '正在进行的上传和下载会中断。你可以随时重新启动服务。': 'Active uploads and downloads will be interrupted. You can restart the service at any time.',
+  '继续传输': 'Keep Transferring',
+  '等待开启连接': 'Waiting to connect',
+  '启动服务后，这里会生成连接地址和专属二维码。': 'Start the service to get a connection link and QR code.',
+  '还没有可用的局域网地址': 'No local network address yet',
+  '请连接 Wi-Fi 或有线网络。连接后地址会自动刷新。': 'Connect to Wi-Fi or Ethernet. The address will refresh automatically.',
+  '在本机浏览器查看文件': 'Open Files in Browser',
+  '设备连接二维码': 'Device connection QR code',
+  '令牌保护已开启': 'Token protection on',
+  '令牌保护未开启': 'Token protection off',
+  '扫一扫，连接这台电脑': 'Scan to connect to this computer',
+  '可用连接地址': 'Available Addresses',
+  '局域网连接地址': 'Local Network Address',
+  '复制连接地址': 'Copy connection address',
+  '连接地址已复制': 'Connection address copied',
+  '无法复制，请手动选择并复制地址': 'Unable to copy. Select and copy the address manually.',
+  '请先保存传输设置，再启动服务': 'Save your settings before starting the service.',
+  '传输服务已启动': 'Transfer service started',
+  '传输服务已停止': 'Transfer service stopped',
+  '请选择或输入共享目录': 'Choose or enter a shared folder.',
+  '端口必须为 0 到 65535，0 表示自动分配': 'Port must be between 0 and 65535. Use 0 for automatic selection.',
+  '请在桌面客户端中打开': 'Open in the desktop app',
+  '此页面需要客户端提供本机服务控制。在项目目录运行': 'This page needs the desktop app to control the local service. In the project folder, run',
+  '启动客户端。': 'to launch the app.',
+  '{error}。修复后可重新打开客户端。': '{error}. Fix the problem and reopen the app.',
+  '找不到客户端目录': 'Cannot find the app directory',
+  '无法启动传输组件': 'Unable to start the transfer component',
+  '无法读取传输组件输出': 'Unable to read transfer component output',
+  '传输组件已关闭': 'Transfer component closed',
+  '传输组件已退出': 'Transfer component exited',
+  '传输组件没有响应': 'Transfer component not responding',
+  '传输组件返回无效状态': 'Transfer component returned an invalid status',
+  '传输组件状态不可用': 'Transfer component state unavailable',
+  '请先启动传输服务': 'Start the transfer service first',
+  '共享目录不可用': 'Shared folder unavailable',
+  '共享目录不可用，请重新选择': 'Shared folder unavailable. Choose another folder',
+  '已有传输服务在运行，请先关闭原服务后再启动': 'Another transfer service is running. Stop it before starting this one.',
+  '监听端口失败': 'Unable to listen on the port',
+  '请停止服务后再修改端口': 'Stop the service before changing the port',
+  '保存设置失败': 'Unable to save settings',
+  '设置文件损坏，请检查': 'Settings file is corrupted. Check',
+  '设置文件中的端口无效': 'Invalid port in settings file',
+};
+
+export function initialLanguage(storage, browserLanguage = 'zh') {
+  try {
+    const saved = storage?.getItem(languageStorageKey);
+    if (saved === 'zh' || saved === 'en') return saved;
+  } catch { /* Storage may be disabled by the WebView. */ }
+  return browserLanguage.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+}
+
+export function translate(language, key, values = {}) {
+  return (language === 'en' ? translations[key] || key : key)
+    .replace(/\{([^}]+)\}/g, (match, name) => Object.hasOwn(values, name) ? String(values[name]) : match);
+}
+
+export function translateError(language, error) {
+  const message = String(error);
+  if (language !== 'en') return message;
+  if (translations[message]) return translations[message];
+  // Translate known component errors while retaining OS error details and paths.
+  const prefix = Object.keys(translations).sort((a, b) => b.length - a.length)
+    .find(key => message.startsWith(`${key}:`) || message.startsWith(`${key} `));
+  return prefix ? translations[prefix] + message.slice(prefix.length) : message;
+}
