@@ -15,7 +15,7 @@ https://api.ip21.cn/products/10/feedback
 参数使用表单 URL 编码放在 URL 片段中，例如：
 
 ```text
-https://api.ip21.cn/products/10/feedback#app_version=1.1.1&os=macos&os_version=15.6.1&arch=aarch64
+https://api.ip21.cn/products/10/feedback#app_version=1.1.2&os=macos&os_version=15.6.1&arch=aarch64
 ```
 
 反馈页读取后立即清除片段，展示环境信息，并在用户提交时一起保存；登录及提交成功后的表单重置都会保留这些信息。字段按服务端字符数上限裁剪（64 / 32 / 128 / 32），避免超长环境值导致反馈提交失败。直接访问不带参数的网页仍可正常反馈。客户端无需登录，账号鉴权继续由反馈网页完成，不使用局域网文件访问令牌。

@@ -39,7 +39,7 @@ python scripts/collect-release.py --platform Windows-x64 --portable-only
 
 免安装版依赖系统已安装的 [WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。若缺少，可从微软安装 Evergreen Runtime，或使用本软件的安装版。配置仍写入下面的用户配置目录，与安装版共用，不随解压文件夹移动。
 
-桌面版支持 macOS 12.3+、Windows 10 / 11（WebView2）和安装了 WebKitGTK 4.1 的 Linux。各平台安装包在对应系统上构建。CI 为 macOS Intel / Apple Silicon、Windows x64、Linux x64 / ARM64 安装包配置了测试与 artifact 上传，Windows 同时提供免安装 ZIP。推送与应用版本一致的 `v*` 标签（例如 `v1.1.1`）后，全部平台构建通过才发布 GitHub Release，安装版与免安装版均附带 SHA256 校验文件；手动运行仅构建产物，除非所选 ref 本身是版本标签。签名、公证需发布者提供证书。
+桌面版支持 macOS 12.3+、Windows 10 / 11（WebView2）和安装了 WebKitGTK 4.1 的 Linux。各平台安装包在对应系统上构建。CI 为 macOS Intel / Apple Silicon、Windows x64、Linux x64 / ARM64 安装包配置了测试与 artifact 上传，Windows 同时提供免安装 ZIP。推送与应用版本一致的 `v*` 标签（例如 `v1.1.2`）后，全部平台构建通过才发布 GitHub Release，安装版与免安装版均附带 SHA256 校验文件；手动运行仅构建产物，除非所选 ref 本身是版本标签。签名、公证需发布者提供证书。
 
 图标的唯一设计源文件为 `assets/fangxu-file-transfer-app-icon.svg`，采用软件界面的柔和蓝色主色（`--accent: #5269c7`）作为背景、浅蓝白（`--accent-soft: #f0f3ff`）作为图形颜色，保留文件传到手机的标识。运行 `npm run desktop:icons`，生成 1024px PNG 和 `src-tauri/icons/` 中各平台所需的 PNG、ICNS 与 ICO；兼容旧路径的 `assets/fangxu-file-transfer-logo.png` 同步生成相同内容。桌面界面、网页 Logo 与 favicon、macOS 应用与 Dock、DMG、Windows 主程序、NSIS 安装与卸载程序及免安装版共用此设计。界面按原比例显示完整图标，不放大裁切。桌面打包前自动重新生成图标，避免设计稿与分发资源不一致。
 

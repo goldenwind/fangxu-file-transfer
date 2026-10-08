@@ -48,7 +48,7 @@ class ReleasePackagingTests(unittest.TestCase):
         )
         with ZipFile(output / f"{PORTABLE_NAME}.zip") as archive:
             self.assertIsNone(archive.testzip())
-            extracted = self.root / "folder with spaces / 中文"
+            extracted = self.root / "folder with spaces" / "中文"
             archive.extractall(extracted)
         folder = extracted / PORTABLE_NAME
         self.assertEqual((folder / "方序传文件.exe").read_bytes(), b"MZ-client")
