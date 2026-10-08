@@ -43,21 +43,27 @@ Computer folder <──same Wi-Fi / HTTP──> Phone or tablet browser
 
 The service starts with the app by default. View its status, LAN address, QR code and shared folder. GitHub and language controls are in the top-right corner; Product Feedback is in the sidebar.
 
-![Desktop file transfer: service status, QR code and shared folder](./assets/screenshots/desktop-transfer.png)
+![Desktop file transfer: service status, QR code and shared folder](./assets/screenshots/desktop-transfer-en.jpg)
 
 ### Desktop client · Settings
 
 Choose the shared folder, port and token protection. Service auto-start is enabled by default, and quitting the app stops sharing.
 
-![Desktop settings: folder, port, token protection and service auto-start](./assets/screenshots/desktop-settings.png)
+![Desktop settings: folder, port, token protection and service auto-start](./assets/screenshots/desktop-settings-en.jpg)
+
+### Desktop client · About & Help
+
+Use **Check for updates** at the top to check the stable version for your system and architecture. Connection steps, troubleshooting and privacy notes appear below. The default 1080 × 800 window displays the entire help page in either language without scrolling.
+
+![Desktop About & Help: update checking, connection steps and privacy notes](./assets/screenshots/desktop-about-en.jpg)
 
 ### External browser · File manager
 
 Scan the QR code or open the LAN address to upload files, search, filter, sort or download multiple files. Chinese and English are available on the same page.
 
-![External browser file manager: uploads, filters, sorting and batch downloads](./assets/screenshots/file-browser.jpg)
+![External browser file manager: uploads, filters, sorting and batch downloads](./assets/screenshots/file-browser-en.jpg)
 
-Screenshots use a dedicated sample folder and the client's default window size.
+These screenshots show v1.1.3 on macOS and the browser file manager, using a dedicated sample folder and the client's default window size. The [Chinese README](./README.md#界面预览) includes the corresponding Chinese interface screenshots.
 
 ## Features
 
@@ -66,13 +72,18 @@ Screenshots use a dedicated sample folder and the client's default window size.
 - **Multiple uploads:** up to 100 files and 10 GB total per request; temporary files are cleaned up on failure. Downloads support HTTP resume.
 - **Desktop controls:** choose a folder, configure port and token protection, persist auto-start preferences, and view addresses, QR codes and service status in the native window.
 - **Temporary sharing:** start and stop sharing manually; quitting stops the service. A second launch focuses the existing window.
+- **Batch downloads:** select individual files or all files visible after searching and filtering, then download the original files individually. Allow multiple downloads when prompted by your browser. Selections survive filter changes; use Clear selection to reset them.
 - **Access tokens:** optionally restrict access to devices with the full link or new QR code. The web interface offers no deletion or renaming.
 
-Use **Check for updates** at the top of **About & Help** to check the stable version for your system and architecture, read release notes, and open the new version download. No sign-in is required; see the [update integration guide](./docs/updates.md).
+Use **Check for updates** at the top of **About & Help** to check the stable version for your system and architecture, read release notes, and open the new version download for manual installation. No sign-in is required, and the transfer service can be stopped; see the [update integration guide](./docs/updates.md).
 
 ## Product feedback
 
 Click **Product Feedback** at the bottom of the client sidebar to open an in-app feedback window, or visit the [product feedback page](https://api.ip21.cn/products/10/feedback). The desktop entry automatically includes the app version, operating system, OS version and CPU architecture to help diagnose issues. Sign in on the webpage through the existing WeChat official-account flow, then submit a category, title, description, optional screenshot and contact email. File transfers remain free and require no account or membership. Opening feedback does not upload shared files. You can also use [GitHub Issues](https://github.com/goldenwind/fangxu-file-transfer/issues).
+
+Reopening feedback preserves the current window's sign-in state and draft. Closing it leaves file transfers running. The feedback webpage currently uses Chinese; see the [feedback integration guide](./docs/feedback.md).
+
+<img src="./assets/screenshots/desktop-feedback.jpg" width="560" alt="Separate in-app product feedback window: WeChat sign-in and feedback form">
 
 ## Support & follow
 
