@@ -39,7 +39,19 @@ python scripts/collect-release.py --platform Windows-x64 --portable-only
 
 免安装版依赖系统已安装的 [WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。若缺少，可从微软安装 Evergreen Runtime，或使用本软件的安装版。配置仍写入下面的用户配置目录，与安装版共用，不随解压文件夹移动。
 
-桌面版支持 macOS 12.3+、Windows 10 / 11（WebView2）和安装了 WebKitGTK 4.1 的 Linux。各平台安装包在对应系统上构建。CI 为 macOS Intel / Apple Silicon、Windows x64、Linux x64 / ARM64 安装包配置了测试与 artifact 上传，Windows 同时提供免安装 ZIP。推送与应用版本一致的 `v*` 标签（例如 `v1.1.3`）后，全部平台构建通过才发布 GitHub Release，安装版与免安装版均附带 SHA256 校验文件；手动运行仅构建产物，除非所选 ref 本身是版本标签。签名、公证需发布者提供证书。
+桌面版支持 macOS 12.3+、Windows 10 / 11（WebView2）和安装了 WebKitGTK 4.1 的 Linux。各平台安装包在对应系统上构建。CI 为 macOS Intel / Apple Silicon、Windows x64、Linux x64 / ARM64 安装包配置了测试与 artifact 上传，Windows 同时提供免安装 ZIP。推送与应用版本一致的 `v*` 标签（例如 `v1.1.4`）后，全部平台构建通过才发布 GitHub Release，安装版与免安装版均附带 SHA256 校验文件；手动运行仅构建产物，除非所选 ref 本身是版本标签。签名、公证需发布者提供证书。
+
+发布前同步 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 中本应用的版本及 `src-tauri/tauri.conf.json`，更新中英文 README 和 `docs/release-notes.md`。保留锁文件中其他依赖的版本。标签对应提交应包含全部代码和文档；发布产物由 `scripts/collect-release.py` 按版本和平台命名。
+
+## 手机照片上传
+
+Go 通过 `go:embed` 将 `web/upload.js` 打包到传输组件，并在 `/assets/upload.js` 提供脚本；`build.rs` 会在脚本修改后重新构建组件。无需额外网络资源。
+
+启用 JavaScript 时，浏览器最多保留 5,000 个文件，每次只渲染当前页的 50 个预览并在翻页时释放旧预览 URL。上传逐文件顺序发送，整批总容量不限；单请求上限仍为 10 GB，前端为单文件预留 1 MiB 请求开销。未启用 JavaScript 时保留 multipart 表单上传，整次请求需小于 10 GB。
+
+每个队列文件使用固定的随机上传 ID，服务端仅在文件保存成功后返回 JSON 确认，并按共享目录和上传 ID 保留最多 10,000 条内存回执。当前服务进程内的重试返回原保存结果，避免响应丢失后重复落盘；并发重试也只保存一次。暂停在当前文件确认保存后生效，恢复跳过已完成文件。页面刷新会丢失队列和上传 ID，服务重启会清空回执，因此该机制不提供跨页面或跨服务重启的续传。
+
+前端队列、分页、容量和重试验证在 `test/upload.test.js`；上传确认、令牌保护、失败清理、并发重试及 5,000 文件上传验证在 `upload_test.go`。
 
 图标的唯一设计源文件为 `assets/fangxu-file-transfer-app-icon.svg`，采用软件界面的柔和蓝色主色（`--accent: #5269c7`）作为背景、浅蓝白（`--accent-soft: #f0f3ff`）作为图形颜色，保留文件传到手机的标识。运行 `npm run desktop:icons`，生成 1024px PNG 和 `src-tauri/icons/` 中各平台所需的 PNG、ICNS 与 ICO；兼容旧路径的 `assets/fangxu-file-transfer-logo.png` 同步生成相同内容。桌面界面、网页 Logo 与 favicon、macOS 应用与 Dock、DMG、Windows 主程序、NSIS 安装与卸载程序及免安装版共用此设计。界面按原比例显示完整图标，不放大裁切。桌面打包前自动重新生成图标，避免设计稿与分发资源不一致。
 

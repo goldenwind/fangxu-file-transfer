@@ -30,6 +30,7 @@ fn main() {
         "go.mod",
         "go.sum",
         "assets/fangxu-file-transfer-app-icon.png",
+        "web/upload.js",
     ] {
         println!("cargo:rerun-if-changed=../{source}");
     }

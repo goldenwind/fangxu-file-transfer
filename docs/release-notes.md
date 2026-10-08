@@ -1,15 +1,15 @@
-方序传文件 v1.1.3：macOS、Windows、Linux 原生桌面客户端。
+方序传文件 v1.1.4：假期照片批量传输。
 
-- 在客户端设置共享目录、端口、访问令牌保护，并启动或停止服务。
-- 默认打开客户端时立即启动服务，关闭窗口或退出应用时自动关闭服务。
-- 初始窗口扩大至 1080 × 800，中英文关于与帮助页完整显示。
-- 更新应用图标和 macOS DMG 安装界面。
-- 客户端与浏览器文件页采用统一配色，支持中文 / English 切换。
-- 手机扫码后直接在浏览器上传、下载、搜索和批量下载文件，无需手机 App 或账号。
+- 手机浏览器新增「选择照片」入口、照片预览和上传队列，一次最多选择 5,000 个文件，上传中也可继续添加；当前列表中的重复选择自动跳过。
+- 文件逐个上传，整批可超过 10 GB，单个文件需小于 10 GB。照片保持原文件与原格式，HEIC / HEIF 无预览时仍可传输。
+- 每页显示 50 个预览，支持未完成、失败、已保存筛选和定位当前上传；显示已保存数量、整体进度、速度与预计剩余时间。
+- 支持当前文件完成后暂停、继续上传和连接中断后重试。电脑确认保存后才计为成功；当前页面与服务进程内重试使用相同上传 ID，避免重复保存。
+- 上传后自动刷新电脑已收到的文件列表，保留下载筛选和选择；同名文件继续自动追加序号，不覆盖已有照片。
+- 中英文 README 增加假期照片备份步骤、传输限制与暂停恢复说明。
 
-- 产品反馈入口携带软件版本、操作系统、系统版本和 CPU 架构，在应用内反馈窗口登录后随问题、截图与建议提交；传输功能仍无需账号。
-- 关于与帮助顶部提供检查更新，显示当前版本、新版本说明及下载入口。
-- Windows 同时提供安装版和免安装 ZIP，免安装版完整解压后双击「方序传文件.exe」启动。
+大批量传输请接上手机充电器，保持页面在前台，避免手机锁屏、电脑休眠或切换 Wi-Fi。队列只保留在当前页面；刷新或关闭后需重新选择，服务重启后不会保留重试回执。超过 5,000 个文件可传完后清空记录，再选下一批。未启用 JavaScript 时，整次表单上传仍需小于 10 GB。
+
+验证：浏览器实际传输 5,000 个测试文件，核对全部文件内容，无重复文件和残留临时文件；覆盖上传中追加、暂停恢复、断网重试、中英文界面和分页。自动测试覆盖大容量队列、上传确认、令牌保护、并发重试和失败清理。
 
 ### 选择下载包
 
@@ -26,4 +26,4 @@ macOS 需 12.3 或更高版本。Linux deb 需 WebKitGTK 4.1（如 Ubuntu 22.04 
 
 Windows 免安装版请完整解压，并保留主程序旁的 `fangxu-transfer-service.exe`。需要系统已安装 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)；若缺少，可安装该组件或使用安装版。设置与安装版共用用户配置目录，不随解压文件夹移动。
 
-English: native desktop clients for macOS (Intel / Apple Silicon), Windows x64, and Linux (x64 / ARM64), with in-app product feedback, update checks, a larger default window, refreshed icons and DMG layout, bilingual controls, service auto-start and automatic shutdown on window close. Windows also has a separate portable ZIP: extract fully and double-click 方序传文件.exe, keeping fangxu-transfer-service.exe beside it. Requires WebView2 Runtime; settings remain in the user configuration directory. Scan the QR code to upload and download in your phone browser.
+English: v1.1.4 improves holiday photo transfers from a phone browser. Select up to 5,000 files, preview 50 per page, add more during upload, filter unfinished or failed files, and check speed and estimated time remaining. Files upload individually in their original format with no total batch size limit; each file must be under 10 GB. Pause after the current file, continue, or retry unsuccessful uploads with save confirmations and retry IDs that prevent duplicate saves within the current page and service process. Received files refresh automatically. Keep the page in the foreground; reloading loses the queue and restarting the service clears retry receipts. Native packages are available for macOS (Intel / Apple Silicon), Windows x64 (installer and portable ZIP), and Linux (x64 / ARM64), with SHA256 checksums.

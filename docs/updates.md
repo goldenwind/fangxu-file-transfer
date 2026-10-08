@@ -3,7 +3,7 @@
 “关于与帮助”中的“检查更新”手动调用 `gf_api` 的公开产品升级接口，无需登录：
 
 ```http
-GET https://api.ip21.cn/api/products/10/releases/latest?current_version=1.1.3&channel=stable&platform=macos&arch=aarch64&installation_id=随机UUID
+GET https://api.ip21.cn/api/products/10/releases/latest?current_version=1.1.4&channel=stable&platform=macos&arch=aarch64&installation_id=随机UUID
 ```
 
 产品 ID `10` 与产品反馈保持一致。协议依据 `gf_api/docs/product_upgrade_api.md`、`app/api/product_release.go` 和 `app/model/product_release.go`。

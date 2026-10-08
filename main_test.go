@@ -56,7 +56,7 @@ func TestIndexShowsServiceControlsAndSortSelectorToLocalPC(t *testing.T) {
 	request.RemoteAddr = "127.0.0.1:43210"
 	response := httptest.NewRecorder()
 	s.routes(8080).ServeHTTP(response, request)
-	for _, expected := range []string{"服务运行中", "停止传输服务", `action="/stop"`, `aria-label="当前排序方式"`, "时间：从新到旧", "时间：从旧到新", "名称：正序", "名称：倒序", `data-time=`, "共享目录：", "该目录下的文件可在其他设备访问和下载", `action="/directory"`, "选择文件夹…", "应用路径", "上传文件", "上传到电脑的共享目录", `name="files" multiple`, "开始上传"} {
+	for _, expected := range []string{"服务运行中", "停止传输服务", `action="/stop"`, `aria-label="当前排序方式"`, "时间：从新到旧", "时间：从旧到新", "名称：正序", "名称：倒序", `data-time=`, "共享目录：", "该目录下的文件可在其他设备访问和下载", `action="/directory"`, "选择文件夹…", "应用路径", "上传照片和文件到电脑", "上传到电脑的共享目录", `name="files" multiple`, "开始上传", `accept="image/*,.heic,.heif"`, `id="upload-queue"`, `id="upload-progress"`, `/assets/upload.js`} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Errorf("local page does not contain %q", expected)
 		}

@@ -30,12 +30,23 @@ For the Windows portable edition, keep `fangxu-transfer-service.exe` beside the 
 1. Open the desktop client. The service starts automatically by default, sharing your user's `Downloads`.
 2. Save a shared folder in Settings (`传输设置`). Set a port or token protection, or disable service auto-start.
 3. Connect your devices to the same Wi-Fi. If the service is stopped, click Start service (`启动服务`). Enable token protection on networks shared with others.
-4. Scan the QR code on your phone and open it in the system browser. Tap a file to download, or select multiple files to upload to your computer.
+4. Scan the QR code on your phone and open it in the system browser. Tap a file to download, or tap **Choose photos**, select photos from your library, review the queue and start uploading to your computer.
 5. Click Stop service (`停止服务`) when finished, or quit the client to stop sharing automatically.
 
 ```text
 Computer folder <──same Wi-Fi / HTTP──> Phone or tablet browser
 ```
+
+## After a holiday: back up phone photos to your computer
+
+1. Choose a shared folder for the trip on your computer, check free disk space, and connect both devices to the same Wi-Fi.
+2. Scan the QR code and tap **Choose photos**. Select up to 5,000 files from the system photo library. Files keep their original format without compression or conversion; HEIC / HEIF uploads work even if previews are unavailable.
+3. Review the count and total size, then tap **Start upload**. A batch can exceed 10 GB; each file must be under 10 GB. Add more during upload; repeated selections already in the queue are skipped.
+4. Check the saved count, speed and estimated time remaining. Each page has 50 previews. Filter unfinished, failed or saved files, or tap **Find current upload** to locate the active photo.
+5. Tap **Pause upload** to pause after the current file is saved, then **Continue upload** to resume. After a connection interruption, reconnect and tap **Retry and continue**. Successful uploads in the current page are skipped.
+6. Tap **View received files** or check the shared folder on your computer. For more than 5,000 files, finish the batch, tap **Clear history** and select the next batch. Clearing the queue does not delete files on the computer.
+
+For large transfers, connect your phone to a charger, keep the browser in the foreground, and avoid computer sleep, screen locking or Wi-Fi changes. The queue belongs to the current page; reloading or closing it requires selecting files again. Existing filenames receive a numbered suffix to prevent overwriting. Speed and remaining time are estimates and take a few seconds to appear.
 
 ## Screenshots
 
@@ -69,7 +80,8 @@ These screenshots show v1.1.3 on macOS and the browser file manager, using a ded
 
 - **Two-way direct transfer:** any file type, without third-party servers. Uploads with duplicate names receive a numbered suffix instead of overwriting files.
 - **Folder sharing:** subfolder scanning, Chinese filenames, search, two-level file type filters, file counts, and sorting by time or name.
-- **Multiple uploads:** up to 100 files and 10 GB total per request; temporary files are cleaned up on failure. Downloads support HTTP resume.
+- **Holiday photo transfers:** select up to 5,000 files and add more during upload. Files upload individually with no total batch size limit, so thousands of originals do not need to be split into groups of 100. Preview 50 files per page, filter unfinished, failed or saved files, locate the current upload, and see transfer speed and estimated time remaining. Pause and continue, or retry unsuccessful files after a connection interruption. Received photos stay on the computer, and the file list updates automatically after uploads.
+- **Upload limits and cleanup:** each file must be under 10 GB, with space reserved for request overhead. Without JavaScript, the whole form submission must be under 10 GB. Temporary files are cleaned up on failure. For large transfers, connect a charger, keep the page in the foreground, and avoid locking the screen, reloading or switching Wi-Fi. The queue and retry records belong to the current page; reloading requires selecting files again. For more than 5,000 files, finish the batch, clear completed records and select the next batch. Downloads support HTTP resume.
 - **Desktop controls:** choose a folder, configure port and token protection, persist auto-start preferences, and view addresses, QR codes and service status in the native window.
 - **Temporary sharing:** start and stop sharing manually; quitting stops the service. A second launch focuses the existing window.
 - **Batch downloads:** select individual files or all files visible after searching and filtering, then download the original files individually. Allow multiple downloads when prompted by your browser. Selections survive filter changes; use Clear selection to reset them.

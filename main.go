@@ -34,14 +34,18 @@ import (
 )
 
 const (
-	defaultListen  = "0.0.0.0:0"
-	instanceHeader = "X-Fangxu-File-Transfer-Instance"
-	maxUploadBytes = 10 << 30
-	maxUploadFiles = 100
+	defaultListen     = "0.0.0.0:0"
+	instanceHeader    = "X-Fangxu-File-Transfer-Instance"
+	maxUploadBytes    = 10 << 30
+	maxUploadFiles    = 5000
+	maxUploadReceipts = 10000
 )
 
 //go:embed assets/fangxu-file-transfer-app-icon.png
 var logoPNG []byte
+
+//go:embed web/upload.js
+var uploadJS []byte
 
 type sharedFile struct {
 	Name         string
@@ -77,18 +81,20 @@ type accessAddress struct {
 }
 
 type server struct {
-	mu            sync.RWMutex
-	pickerMu      sync.Mutex
-	uploadMu      sync.Mutex
-	root          string
-	resolvedRoot  string
-	token         string
-	protected     bool
-	stopToken     string
-	instanceToken string
-	desktop       bool
-	shutdown      func()
-	page          *template.Template
+	mu             sync.RWMutex
+	pickerMu       sync.Mutex
+	uploadMu       sync.Mutex
+	uploadReceipts map[string][]string // guarded by uploadMu; bounded retry receipts
+	uploadOrder    []string
+	root           string
+	resolvedRoot   string
+	token          string
+	protected      bool
+	stopToken      string
+	instanceToken  string
+	desktop        bool
+	shutdown       func()
+	page           *template.Template
 }
 
 func main() {
@@ -200,6 +206,10 @@ func (s *server) routes(port int) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.index(port))
 	mux.HandleFunc("/assets/logo.png", logo)
+	mux.HandleFunc("/assets/upload.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		http.ServeContent(w, r, "upload.js", time.Time{}, bytes.NewReader(uploadJS))
+	})
 	mux.HandleFunc("/download", s.download)
 	mux.HandleFunc("/upload", s.upload)
 	mux.HandleFunc("/directory", s.changeDirectory)
@@ -422,7 +432,7 @@ func directoryStatus(status string) string {
 	case "upload-too-large":
 		return "上传内容超过 10 GB，请减少文件数量或大小后重试。"
 	case "upload-too-many":
-		return "一次最多上传 100 个文件，请分批上传。"
+		return "一次最多上传 5,000 个文件，请分批上传。"
 	case "upload-invalid":
 		return "部分文件名无效，请检查后重试。"
 	case "upload-failed":
@@ -541,17 +551,38 @@ func (s *server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.authorized(r) || subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("upload_token")), []byte(s.token)) != 1 {
+		if wantsUploadJSON(r) {
+			writeUploadJSON(w, http.StatusForbidden, "upload-unauthorized", nil)
+			return
+		}
 		http.Error(w, "Invalid upload request", http.StatusForbidden)
 		return
 	}
 
+	requestID := r.Header.Get("X-Upload-ID")
+	if requestID != "" {
+		if len(requestID) != 32 || strings.Trim(requestID, "0123456789abcdef") != "" || !wantsUploadJSON(r) {
+			s.redirectAfterUpload(w, r, "upload-invalid")
+			return
+		}
+	}
+	root, _ := s.roots()
+	receiptKey := root + "\x00" + requestID
+	if requestID != "" {
+		s.uploadMu.Lock()
+		names, found := s.uploadReceipts[receiptKey]
+		s.uploadMu.Unlock()
+		if found {
+			writeUploadJSON(w, http.StatusOK, "uploaded", names)
+			return
+		}
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	reader, err := r.MultipartReader()
 	if err != nil {
 		s.redirectAfterUpload(w, r, "upload-invalid")
 		return
 	}
-	root, _ := s.roots()
 	pending := make([]pendingUpload, 0, 4)
 	defer func() {
 		for _, upload := range pending {
@@ -610,7 +641,15 @@ func (s *server) upload(w http.ResponseWriter, r *http.Request) {
 
 	s.uploadMu.Lock()
 	defer s.uploadMu.Unlock()
+	// A retry may arrive while the original request is still being saved.
+	if requestID != "" {
+		if names, found := s.uploadReceipts[receiptKey]; found {
+			writeUploadJSON(w, http.StatusOK, "uploaded", names)
+			return
+		}
+	}
 	committed := make([]string, 0, len(pending))
+	names := make([]string, 0, len(pending))
 	for _, upload := range pending {
 		destination, pathErr := availableUploadPath(root, upload.name)
 		if pathErr == nil {
@@ -630,6 +669,22 @@ func (s *server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		committed = append(committed, destination)
+		names = append(names, filepath.Base(destination))
+	}
+	if requestID != "" {
+		if s.uploadReceipts == nil {
+			s.uploadReceipts = make(map[string][]string)
+		}
+		if len(s.uploadOrder) >= maxUploadReceipts {
+			delete(s.uploadReceipts, s.uploadOrder[0])
+			s.uploadOrder = s.uploadOrder[1:]
+		}
+		s.uploadReceipts[receiptKey] = names
+		s.uploadOrder = append(s.uploadOrder, receiptKey)
+	}
+	if wantsUploadJSON(r) {
+		writeUploadJSON(w, http.StatusOK, "uploaded", names)
+		return
 	}
 	s.redirectAfterUpload(w, r, "uploaded")
 }
@@ -677,11 +732,34 @@ func uploadErrorStatus(err error) string {
 }
 
 func (s *server) redirectAfterUpload(w http.ResponseWriter, r *http.Request, status string) {
+	if wantsUploadJSON(r) {
+		code := http.StatusBadRequest
+		if status == "upload-too-large" {
+			code = http.StatusRequestEntityTooLarge
+		} else if status == "upload-failed" {
+			code = http.StatusInternalServerError
+		}
+		writeUploadJSON(w, code, status, nil)
+		return
+	}
 	query := url.Values{"status": {status}}
 	if s.isProtected() {
 		query.Set("token", s.token)
 	}
 	http.Redirect(w, r, "/?"+query.Encode(), http.StatusSeeOther)
+}
+
+func wantsUploadJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json")
+}
+
+func writeUploadJSON(w http.ResponseWriter, code int, status string, names []string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(struct {
+		Status string   `json:"status"`
+		Files  []string `json:"files"`
+	}{status, names})
 }
 
 func scanFiles(root, resolvedRoot string) ([]sharedFile, error) {
@@ -1327,6 +1405,9 @@ button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-heigh
 .language-button{padding:6px;font-size:12px}
 .mobile-intro{grid-column:1/-1;max-width:none;text-align:left;margin:0}
 }
+
+.upload-panel{display:block;padding:18px 20px}.upload-form{display:block;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}.upload-pickers{display:flex;gap:10px;flex-wrap:wrap}.upload-picker{min-height:44px;padding:10px 16px;gap:20px;font-size:14px}.upload-photo-picker{background:var(--accent-soft);border-color:#b9c5ef}.upload-picker:focus-within{outline:2px solid var(--accent);outline-offset:2px}.upload-picker.is-disabled{opacity:.55;cursor:default}.upload-hint{margin:10px 0;color:var(--muted);font-size:12px;line-height:1.7}.upload-summary{display:flex;align-items:center;justify-content:space-between;gap:12px}.upload-selection{max-width:none;white-space:normal;overflow-wrap:anywhere;font-size:13px}.upload-quiet{min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:5px;background:#fff;color:var(--accent);font:inherit;font-size:13px}.upload-quiet:disabled{opacity:.5}.upload-queue{list-style:none;margin:10px 0 14px;padding:0;max-height:320px;overflow:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:5px}.upload-row{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--line)}.upload-row:last-child{border:0}.upload-preview{position:relative;display:grid;place-items:center;flex:none;width:44px;height:44px;overflow:hidden;border-radius:5px;background:var(--accent-soft);color:var(--accent);font-size:22px}.upload-preview img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.upload-row-details{flex:1;min-width:0;font-size:12px;color:var(--muted)}.upload-row-details strong{display:block;color:var(--text);font-size:13px;overflow-wrap:anywhere}.upload-row-result{display:block;font-size:12px;overflow-wrap:anywhere}.upload-row[data-state="done"] .upload-row-details>span{color:#26734c}.upload-row[data-state="failed"] .upload-row-details>span{color:var(--danger)}.upload-remove{flex:none;width:44px;height:44px;border:0;border-radius:5px;background:transparent;color:var(--muted);font-size:24px}.upload-remove:disabled{opacity:.3}.upload-progress-header{display:flex;justify-content:space-between;color:var(--muted);font-size:12px}#upload-progress{width:100%;height:8px;accent-color:var(--accent);margin:8px 0}.upload-status{margin:8px 0 12px;padding:10px 12px;border-radius:5px;background:var(--accent-soft);font-size:13px;line-height:1.7;overflow-wrap:anywhere}.upload-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.upload-submit{min-height:44px;padding:10px 20px;font-size:14px}.upload-submit:disabled{cursor:default}.upload-actions a{color:var(--accent);font-size:13px;min-height:44px;display:inline-flex;align-items:center}.upload-panel [hidden]{display:none!important}@media(max-width:600px){.upload-panel{padding:16px}.upload-copy{align-items:flex-start}.upload-actions .upload-submit{flex:1}.upload-pickers .upload-picker{flex:1;justify-content:center;gap:10px}.upload-queue{max-height:280px}.upload-form{margin-top:12px;padding-top:12px}}
+.upload-queue-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.upload-queue-tools select{max-width:100%;color:var(--text)}.upload-pages{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 14px}.upload-pages span{color:var(--muted);font-size:12px;text-align:center}.upload-quiet:disabled{cursor:default}#upload-activity{color:var(--text);overflow-wrap:anywhere}#upload-estimate{font-variant-numeric:tabular-nums}
 </style></head><body><main>
 <section class="hero"><header class="brand"><a class="brand-home" href="/{{if .Protected}}?token={{.AccessToken | urlquery}}{{end}}" aria-label="方序传文件首页，重置筛选" data-i18n-aria-label="方序传文件首页，重置筛选"><img class="brand-logo" src="/assets/logo.png" alt=""><span class="brand-copy"><h1 data-i18n="方序传文件">方序传文件</h1><span class="tagline" data-i18n="方寸之间，传递有序">方寸之间，传递有序</span></span></a><div class="header-actions"><a class="github-link" href="https://github.com/goldenwind/fangxu-file-transfer" target="_blank" rel="noopener noreferrer" aria-label="GitHub 开源项目" data-i18n-aria-label="GitHub 开源项目"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.4-2.7 5.38-5.28 5.67.42.36.79 1.06.79 2.14v3.18c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg><span data-i18n="GitHub 开源">GitHub 开源</span></a><div class="language-switch" role="group" aria-label="语言 / Language"><button class="language-button" type="button" data-language-button="zh" onclick="setLanguage('zh')">中文</button><button class="language-button" type="button" data-language-button="en" onclick="setLanguage('en')">EN</button></div></div>{{if not .Admin}}<span class="mobile-intro" data-i18n="轻点文件，即可保存到当前设备。">轻点文件，即可保存到当前设备。</span>{{end}}</header>
 {{if .WeChat}}<aside class="wechat-warning" role="alert"><strong data-i18n="微信内无法下载文件">微信内无法下载文件</strong><span data-i18n="请点击右上角“···”，选择“在浏览器打开”。iPhone 可使用 Safari，Android 可使用系统浏览器，然后再点击文件下载。">请点击右上角“···”，选择“在浏览器打开”。iPhone 可使用 Safari，Android 可使用系统浏览器，然后再点击文件下载。</span></aside>{{end}}
@@ -1355,14 +1436,76 @@ button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-heigh
       </div>
     </section>
 {{end}}
-<section class="upload-panel" aria-labelledby="upload-title"><div class="upload-copy"><span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="upload-text"><strong id="upload-title" data-i18n="上传文件">上传文件</strong><span class="upload-description" data-i18n="从当前设备选择文件，上传到电脑的共享目录">从当前设备选择文件，上传到电脑的共享目录</span></div></div><form class="upload-form" method="post" enctype="multipart/form-data" action="/upload?upload_token={{.UploadToken | urlquery}}{{if .Protected}}&amp;token={{.AccessToken | urlquery}}{{end}}"><label class="upload-picker"><input id="upload-files" type="file" name="files" multiple><span data-i18n="选择文件">选择文件</span></label><span class="upload-selection" id="upload-selection" data-i18n="尚未选择">尚未选择</span><button class="upload-submit" type="submit" data-i18n="开始上传">开始上传</button></form></section>
-<div class="toolbar"><input id="search" class="search" type="search" placeholder="搜索文件名或文件夹…" data-i18n-placeholder="搜索文件名或文件夹…" autocomplete="off"><select id="sort" class="sort" aria-label="当前排序方式" data-i18n-aria-label="当前排序方式"><option value="time-desc" data-i18n="时间：从新到旧">时间：从新到旧</option><option value="time-asc" data-i18n="时间：从旧到新">时间：从旧到新</option><option value="name-asc" data-i18n="名称：正序">名称：正序</option><option value="name-desc" data-i18n="名称：倒序">名称：倒序</option></select><span class="count"><b id="visible">{{.FileCount}}</b> / {{.FileCount}}</span></div>
+<section class="upload-panel" aria-labelledby="upload-title">
+<div class="upload-copy"><span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="upload-text"><strong id="upload-title" data-i18n="上传照片和文件到电脑">上传照片和文件到电脑</strong><span class="upload-description" data-i18n="上传到电脑的共享目录 · 同名文件自动保留两份">上传到电脑的共享目录 · 同名文件自动保留两份</span></div></div>
+<form class="upload-form" method="post" enctype="multipart/form-data" action="/upload?upload_token={{.UploadToken | urlquery}}{{if .Protected}}&amp;token={{.AccessToken | urlquery}}{{end}}">
+<div class="upload-pickers"><label class="upload-picker upload-photo-picker"><input id="upload-photos" type="file" name="files" multiple accept="image/*,.heic,.heif"><span data-i18n="选择照片">选择照片</span><span aria-hidden="true">＋</span></label><label class="upload-picker"><input id="upload-files" type="file" name="files" multiple><span data-i18n="选择文件">选择文件</span></label></div>
+<p class="upload-hint" data-i18n="假期照片一次传：最多选择 5,000 个文件，逐个上传，整批不限总大小。单个文件需小于 10 GB，上传中也可继续添加。">假期照片一次传：最多选择 5,000 个文件，逐个上传，整批不限总大小。单个文件需小于 10 GB，上传中也可继续添加。</p>
+<div class="upload-summary"><span class="upload-selection" id="upload-selection" data-i18n="尚未选择">尚未选择</span><button id="upload-clear" class="upload-quiet" type="button" disabled data-i18n="清空列表">清空列表</button></div>
+<div class="upload-queue-tools"><select id="upload-filter" class="upload-quiet" aria-label="筛选上传列表" data-i18n-aria-label="筛选上传列表" hidden><option value="all" data-i18n="全部">全部</option><option value="unfinished" data-i18n="未完成">未完成</option><option value="failed" data-i18n="上传失败">上传失败</option><option value="done" data-i18n="已保存到电脑">已保存到电脑</option></select><button id="upload-current" class="upload-quiet" type="button" hidden data-i18n="查看正在上传">查看正在上传</button></div>
+<ul id="upload-queue" class="upload-queue" aria-label="待上传和已上传的文件" data-i18n-aria-label="待上传和已上传的文件" hidden></ul>
+<p id="upload-queue-empty" class="upload-hint" hidden data-i18n="当前筛选下没有文件">当前筛选下没有文件</p>
+<div id="upload-pages" class="upload-pages" hidden><button id="upload-previous" class="upload-quiet" type="button" data-i18n="上一页">上一页</button><span id="upload-page-text"></span><button id="upload-next" class="upload-quiet" type="button" data-i18n="下一页">下一页</button></div>
+<div class="upload-progress-header"><span id="upload-progress-text" hidden></span></div><progress id="upload-progress" max="100" value="0" aria-label="批量上传进度" data-i18n-aria-label="批量上传进度" hidden></progress>
+<p id="upload-activity" class="upload-hint" hidden></p><p id="upload-estimate" class="upload-hint" hidden></p>
+<p id="upload-status" class="upload-status" role="status" hidden></p>
+<div class="upload-actions"><button class="upload-submit" type="submit" data-i18n="开始上传">开始上传</button><button id="upload-pause" class="upload-quiet" type="button" hidden data-i18n="暂停上传">暂停上传</button><a id="upload-refresh" href="#list" hidden data-i18n="查看电脑已收到的文件">查看电脑已收到的文件</a></div>
+<noscript><p class="upload-hint" data-i18n="启用 JavaScript 可逐个上传大量照片、查看进度并重试；未启用时整次上传需小于 10 GB。">启用 JavaScript 可逐个上传大量照片、查看进度并重试；未启用时整次上传需小于 10 GB。</p></noscript>
+</form></section>
+<div class="toolbar"><input id="search" class="search" type="search" placeholder="搜索文件名或文件夹…" data-i18n-placeholder="搜索文件名或文件夹…" autocomplete="off"><select id="sort" class="sort" aria-label="当前排序方式" data-i18n-aria-label="当前排序方式"><option value="time-desc" data-i18n="时间：从新到旧">时间：从新到旧</option><option value="time-asc" data-i18n="时间：从旧到新">时间：从旧到新</option><option value="name-asc" data-i18n="名称：正序">名称：正序</option><option value="name-desc" data-i18n="名称：倒序">名称：倒序</option></select><span class="count"><b id="visible">{{.FileCount}}</b> / <span id="total">{{.FileCount}}</span></span></div>
 <div class="filter-stack"><div class="filter-level"><span class="filter-label" data-i18n="类型">类型</span><div class="filters" id="category-filters" role="group" aria-label="按文件大类筛选" data-i18n-aria-label="按文件大类筛选"></div></div><div class="filter-level" id="subcategory-level" hidden><span class="filter-label" data-i18n="格式">格式</span><div class="filters subfilters" id="subcategory-filters" role="group" aria-label="进一步按文件格式筛选" data-i18n-aria-label="进一步按文件格式筛选"></div></div></div>
 <div class="batch-toolbar"><label class="select-all"><input id="select-all" type="checkbox"><span data-i18n="全选本页">全选本页</span></label><span id="selected-count" aria-live="polite" data-i18n="已选 0 个">已选 0 个</span><button id="batch-download" type="button" disabled data-i18n="批量下载">批量下载</button><button id="clear-selection" type="button" disabled data-i18n="取消选择">取消选择</button></div><p id="batch-status" class="batch-status" role="status" hidden></p>
 <div class="list" id="list">{{range .Files}}<div class="file-row"><label class="file-select"><input class="file-checkbox" type="checkbox" aria-label="选择 {{.Name}}" data-select-name="{{.Name}}"></label><a class="file" data-key="{{.Path}}" data-name="{{.Path}}" data-time="{{.ModifiedUnix}}" data-filters="{{.FilterTags}}" href="/download?{{if $.Protected}}token={{$.AccessToken | urlquery}}&amp;{{end}}path={{.Path | urlquery}}" download="{{.Name}}"><span class="icon {{.Category}}" data-icon="{{.Icon}}" aria-hidden="true">{{if eq .Icon "pdf"}}<svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.7 16.3v-4.5h1.1a1.15 1.15 0 0 1 0 2.3H7.7M10.5 16.3v-4.5h.9c1.5 0 2.2.85 2.2 2.25s-.7 2.25-2.2 2.25zM14.5 16.3v-4.5h2M14.5 14h1.6" stroke="currentColor" stroke-width=".9" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "word"}}<svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m8.5 11 1.3 5 2.2-3.4 2.2 3.4 1.3-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "spreadsheet"}}<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="1" stroke="currentColor" stroke-width="1.6"/><path d="M4 9h16M9.5 9v11M4 14.5h16M15 9v11" stroke="currentColor" stroke-width="1.35"/></svg>{{else if eq .Icon "presentation"}}<svg viewBox="0 0 24 24" fill="none"><path d="M4 4.5h16v11H4zM12 15.5v4M8.5 19.5h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m8 12 2.5-2.5 2 1.7L16 7.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "text"}}<svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4M8.5 11h7M8.5 14h7M8.5 17h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "markdown"}}<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 15v-6l2.5 3 2.5-3v6M15 9v6m-2-2 2 2 2-2" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "code"}}<svg viewBox="0 0 24 24" fill="none"><path d="m9 7-5 5 5 5M15 7l5 5-5 5M13.5 4.5l-3 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "image"}}<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4.5" width="17" height="15" rx="1.5" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="9.5" r="1.5" fill="currentColor"/><path d="m5.5 17 4-4 3 2.8 2.2-2.3 3.8 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "video"}}<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="1.5" stroke="currentColor" stroke-width="1.7"/><path d="m10 9 5 3-5 3z" fill="currentColor"/></svg>{{else if eq .Icon "audio"}}<svg viewBox="0 0 24 24" fill="none"><path d="M9.5 17V6.5l8-2v10.7M9.5 9l8-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="17" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="15" cy="15.5" r="2.5" stroke="currentColor" stroke-width="1.7"/></svg>{{else if eq .Icon "ebook"}}<svg viewBox="0 0 24 24" fill="none"><path d="M4 5.5c3.2-.7 5.9.1 8 2.2v12c-2.1-2.1-4.8-2.9-8-2.2zM20 5.5c-3.2-.7-5.9.1-8 2.2v12c2.1-2.1 4.8-2.9 8-2.2z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "archive"}}<svg viewBox="0 0 24 24" fill="none"><path d="M5 8h14v11.5H5zM4 4.5h16V8H4zM10 12h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 4.5h4" stroke="currentColor" stroke-width="1.7"/></svg>{{else if eq .Icon "windows"}}<svg viewBox="0 0 24 24" fill="currentColor"><path d="m3.5 5.5 7.5-1v7H3.5zm8.5-1.2 8.5-1.2v8.4H12zM3.5 12.5H11v7l-7.5-1zm8.5 0h8.5v8.4L12 19.7z"/></svg>{{else if eq .Icon "macos"}}<svg viewBox="0 0 24 24" fill="none"><path d="M7 8.5 12 5l5 3.5v7L12 19l-5-3.5zM7 8.5l5 3.5 5-3.5M12 12v7M12 5v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "linux"}}<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="m7 9 3 3-3 3M12 15h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "android"}}<svg viewBox="0 0 24 24" fill="none"><path d="M6 10h12v8.5H6zM8 10a4 4 0 0 1 8 0M8 6 6.5 4M16 6l1.5-2M9 14h.01M15 14h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "ios"}}<svg viewBox="0 0 24 24" fill="none"><rect x="7" y="2.5" width="10" height="19" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 5h3M11 18.5h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{else if eq .Icon "disk-image"}}<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5V8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>{{else if eq .Icon "font"}}<svg viewBox="0 0 24 24" fill="none"><path d="m5 19 7-15 7 15M7.5 14h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "design"}}<svg viewBox="0 0 24 24" fill="none"><path d="m12 3 6.5 6.5L12 21 5.5 9.5zM5.5 9.5H10M14 9.5h4.5M12 21v-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11.5" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg>{{else if eq .Icon "database"}}<svg viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="5.5" rx="7.5" ry="3" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6" stroke="currentColor" stroke-width="1.6"/></svg>{{else}}<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h7l4 4v13h-11zM13.5 3.5v4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="14" r="1" fill="currentColor"/><circle cx="12" cy="14" r="1" fill="currentColor"/><circle cx="15" cy="14" r="1" fill="currentColor"/></svg>{{end}}</span><span class="details"><span class="name">{{.Name}}</span><span class="meta">{{if .Folder}}{{.Folder}} · {{end}}{{.Size}} · {{.Modified}}</span></span><span class="download" data-i18n="下载">下载</span></a></div>{{else}}<div class="empty" data-i18n="共享目录中还没有文件">共享目录中还没有文件</div>{{end}}<div id="filter-empty" class="empty filter-empty" hidden data-i18n="没有符合当前条件的文件">没有符合当前条件的文件</div></div>
 <p class="note" data-i18n="方序传文件 · 文件只在你的局域网内流转，不会上传到云端。请勿将访问地址分享给不信任的人。">方序传文件 · 文件只在你的局域网内流转，不会上传到云端。请勿将访问地址分享给不信任的人。</p>
-</main><script>
+</main><script src="/assets/upload.js"></script><script>
 const translations = {
+  "电脑正在确认保存": "Confirming save on computer",
+  "上传照片和文件到电脑": "Upload photos and files to your computer",
+  "上传到电脑的共享目录 · 同名文件自动保留两份": "Saved in the shared folder · Existing files are kept",
+  "选择照片": "Choose photos",
+  "清空列表": "Clear list",
+  "清空记录": "Clear history",
+  "暂停上传": "Pause upload",
+  "当前文件完成后暂停": "Pausing after this file",
+  "继续上传": "Continue upload",
+  "上传完成": "Upload complete",
+  "重试失败并继续": "Retry and continue",
+  "查看电脑已收到的文件": "View received files",
+  "假期照片一次传：最多选择 5,000 个文件，逐个上传，整批不限总大小。单个文件需小于 10 GB，上传中也可继续添加。": "Transfer your holiday photos: select up to 5,000 files. Files upload individually with no total batch size limit. Each file must be under 10 GB. Add more during upload.",
+  "启用 JavaScript 可逐个上传大量照片、查看进度并重试；未启用时整次上传需小于 10 GB。": "Enable JavaScript for large photo queues, progress and retries. Without it, the whole upload must be under 10 GB.",
+  "筛选上传列表": "Filter upload queue",
+  "未完成": "Unfinished",
+  "查看正在上传": "Find current upload",
+  "当前筛选下没有文件": "No files match this filter",
+  "上一页": "Previous",
+  "下一页": "Next",
+  "第 {page} / {pages} 页 · {count} 个": "Page {page} / {pages} · {count} files",
+  "正在上传：{name}": "Uploading: {name}",
+  "正在估算速度和剩余时间…": "Estimating speed and time remaining…",
+  "{speed}/秒 · 预计剩余 {minutes} 分钟": "{speed}/s · About {minutes} minutes left",
+  "待上传和已上传的文件": "Queued and uploaded files",
+  "批量上传进度": "Batch upload progress",
+  "已选择 {count} 个文件 · {size}": "{count} files selected · {size}",
+  "已保存 {done} / {count} · {percent}%": "Saved {done} / {count} · {percent}%",
+  "待上传": "Queued",
+  "正在上传": "Uploading",
+  "已保存到电脑": "Saved to computer",
+  "上传失败": "Upload failed",
+  "移除 {name}": "Remove {name}",
+  "同名文件已自动重命名": "Renamed to keep the existing file",
+  "连接中断或等待超时，请检查 Wi-Fi 和电脑服务后重试。": "Connection lost or timed out. Check Wi-Fi and the computer service, then retry.",
+  "访问链接已失效，请重新扫描电脑上的二维码。": "This link has expired. Scan the QR code on the computer again.",
+  "文件名无效，请移除此文件后继续。": "Invalid filename. Remove this file to continue.",
+  "单个文件需小于 10 GB，请移除此文件后继续。": "Each file must be under 10 GB. Remove this file to continue.",
+  "电脑未能保存文件，请检查共享目录和磁盘空间后重试。": "Could not save the file. Check the shared folder and free disk space, then retry.",
+  "有 {count} 个文件未加入：列表最多 5,000 个文件，单个需小于 10 GB。可传完后清空记录，再添加下一批。": "{count} files were not added. The list allows up to 5,000 files, each under 10 GB. Upload this list, clear completed records, then add the next batch.",
+  "已跳过 {count} 个重复选择的文件。": "Skipped {count} files already in the list.",
+  "上传期间请保持页面在前台，避免锁屏或切换 Wi-Fi。": "Keep this page open during upload. Avoid locking the screen or switching Wi-Fi.",
+  "连接异常，已保留列表和成功记录。检查连接后可重试。": "Connection interrupted. Your list and completed uploads are kept. Check the connection, then retry.",
+  "已暂停，已保存的文件会保留在电脑上。点击继续上传。": "Paused. Received files are kept on the computer. Tap Continue upload.",
+  "已保存 {done} 个，失败 {failed} 个。可重试失败文件。": "Saved {done} files; {failed} failed. You can retry failed files.",
+  "全部 {count} 个文件已保存到电脑的共享目录。": "All {count} files were saved to the shared folder on your computer.",
+
   "GitHub 开源": "GitHub",
   "GitHub 开源项目": "GitHub repository",
   "\u65b9\u5e8f\u4f20\u6587\u4ef6": "Fangxu File Transfer",
@@ -1466,7 +1609,7 @@ const translations = {
   "\u6587\u4ef6\u5df2\u4e0a\u4f20\u5230\u5171\u4eab\u76ee\u5f55\u3002": "Files uploaded to the shared folder.",
   "\u8bf7\u5148\u9009\u62e9\u9700\u8981\u4e0a\u4f20\u7684\u6587\u4ef6\u3002": "Choose files to upload first.",
   "\u4e0a\u4f20\u5185\u5bb9\u8d85\u8fc7 10 GB\uff0c\u8bf7\u51cf\u5c11\u6587\u4ef6\u6570\u91cf\u6216\u5927\u5c0f\u540e\u91cd\u8bd5\u3002": "Upload exceeds 10 GB. Reduce the number or size of files and try again.",
-  "\u4e00\u6b21\u6700\u591a\u4e0a\u4f20 100 \u4e2a\u6587\u4ef6\uff0c\u8bf7\u5206\u6279\u4e0a\u4f20\u3002": "Upload up to 100 files at a time. Split them into batches.",
+  "一次最多上传 5,000 个文件，请分批上传。": "Upload up to 5,000 files at a time. Split larger selections into batches.",
   "\u90e8\u5206\u6587\u4ef6\u540d\u65e0\u6548\uff0c\u8bf7\u68c0\u67e5\u540e\u91cd\u8bd5\u3002": "Some filenames are invalid. Check them and try again."
 };
 let currentLanguage='zh';
@@ -1510,6 +1653,21 @@ renderCategories();renderSubcategories();
 const compareName=(a,b)=>a.dataset.name.localeCompare(b.dataset.name,undefined,{numeric:true,sensitivity:'base'}),compareTime=(a,b)=>Number(a.dataset.time)-Number(b.dataset.time);const sortFiles=()=>{const mode=sortSelect.value;items.sort((a,b)=>{switch(mode){case'time-asc':return compareTime(a,b)||compareName(a,b);case'name-asc':return compareName(a,b);case'name-desc':return compareName(b,a);default:return compareTime(b,a)||compareName(a,b)}}).forEach(item=>list.insertBefore(item.parentElement,filterEmpty))};sortSelect.addEventListener('change',sortFiles);
 document.querySelector('.brand-home').addEventListener('click',event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();search.value='';activeCategory='all';activeSubcategory='all';sortSelect.value='time-desc';checkboxes.forEach(box=>box.checked=false);renderCategories();renderSubcategories();sortFiles();filterFiles();if(!batchRunning)document.querySelector('#batch-status').hidden=true;window.scrollTo({top:0,left:0,behavior:'instant'})});
 document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{await navigator.clipboard.writeText(button.dataset.copy);button.textContent=t('已复制');setTimeout(()=>button.textContent=t('复制地址'),1200)}));
-const uploadFiles=document.querySelector('#upload-files'),uploadSelection=document.querySelector('#upload-selection'),uploadForm=document.querySelector('.upload-form'),uploadSubmit=document.querySelector('.upload-submit');const updateUploadSelection=()=>{const files=[...uploadFiles.files];uploadSelection.textContent=files.length===0?t('尚未选择'):files.length===1?files[0].name:t('已选择 {count} 个文件',{count:files.length});if(uploadSubmit.disabled)uploadSubmit.textContent=t('正在上传…')};uploadFiles.addEventListener('change',updateUploadSelection);uploadForm.addEventListener('submit',event=>{if(uploadFiles.files.length===0){event.preventDefault();uploadFiles.click();return}uploadSubmit.disabled=true;uploadSubmit.textContent=t('正在上传…')});
+const refreshReceivedFiles=async()=>{
+  const response=await fetch(window.location.href,{cache:'no-store'});
+  if(!response.ok)throw new Error('Unable to refresh received files');
+  const page=new DOMParser().parseFromString(await response.text(),'text/html'),received=page.querySelector('#list');
+  if(!received)throw new Error('Sharing link expired');
+  const selected=new Set(items.filter(item=>item.parentElement.querySelector('.file-checkbox').checked).map(item=>item.dataset.key));
+  list.querySelectorAll('.file-row,.empty:not(#filter-empty)').forEach(row=>row.remove());
+  received.querySelectorAll('.file-row,.empty:not(#filter-empty)').forEach(row=>list.insertBefore(row,filterEmpty));
+  items.splice(0,items.length,...list.querySelectorAll('.file'));
+  checkboxes.splice(0,checkboxes.length,...list.querySelectorAll('.file-checkbox'));
+  checkboxes.forEach(box=>{box.checked=selected.has(box.parentElement.parentElement.querySelector('.file').dataset.key);box.addEventListener('change',updateSelection);box.setAttribute('aria-label',t('选择 {name}',{name:box.dataset.selectName}))});
+  list.querySelectorAll('[data-i18n]').forEach(element=>element.textContent=t(element.dataset.i18n));
+  document.querySelector('#total').textContent=items.length;
+  renderCategories();renderSubcategories();sortFiles();filterFiles();
+};
+const uploadController=FangxuUpload.mount({t,translatedText,onSaved:refreshReceivedFiles});const updateUploadSelection=()=>uploadController.render();
 setLanguage(initialLanguage());
 </script></body></html>`
