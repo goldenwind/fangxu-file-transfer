@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400">
+  <rect width="660" height="400" fill="#f0f3ff"/>
+  <g text-anchor="middle" font-family="PingFang SC, Noto Sans CJK SC, sans-serif">
+    <text x="330" y="64" font-size="26" font-weight="600" fill="#26345e">拖动到 Applications 即可安装</text>
+    <text x="330" y="96" font-size="15" fill="#677394">Drag the app into Applications to install</text>
+    <text x="330" y="328" font-size="15" fill="#677394">安装后，从「应用程序」打开方序传文件</text>
+    <text x="330" y="352" font-size="13" fill="#677394">Once installed, open Fangxu File Transfer from Applications</text>
+  </g>
+  <!-- Finder places the app at (180, 220) and Applications at (480, 220). -->
+  <path d="M 290 220 H 370 M 348 198 L 370 220 L 348 242"
+        fill="none" stroke="#5269c7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

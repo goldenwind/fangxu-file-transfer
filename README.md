@@ -18,11 +18,14 @@
 | 系统                        | 下载文件                                    | 启动方式                                             |
 | --------------------------- | ------------------------------------------- | ---------------------------------------------------- |
 | Windows x86-64              | `.exe` 安装程序 | 安装后启动「方序传文件」 |
+| Windows x86-64（免安装）     | `Windows-x64-portable.zip` | 完整解压后双击「方序传文件.exe」 |
 | macOS 12.3+ Intel / Apple Silicon | 各架构独立的 `.dmg` | 拖入应用程序后启动 |
 | Linux x86-64                | `.deb` / `.AppImage` | 安装后启动，或执行 AppImage |
 | Linux ARM64                 | `.deb` | 安装后启动 |
 
 Windows 首次启动服务请允许防火墙访问“专用网络”；macOS 未签名构建首次被拦截时可右键 App 选择“打开”；Linux AppImage 需要执行权限。
+
+Windows 免安装版请保留解压目录里的 `fangxu-transfer-service.exe`，不要直接在压缩包内运行。需要系统已安装 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)；若缺少，可安装该组件或选择本软件的安装版。免安装版与安装版共用用户配置目录，设置不会随解压文件夹一起移动。
 
 ## 快速上手
 
@@ -68,9 +71,11 @@ Windows 首次启动服务请允许防火墙访问“专用网络”；macOS 未
 - **批量下载**：勾选多个文件，或“全选本页”选择当前搜索、分类筛选后可见的文件；批量逐个下载原文件；浏览器提示时需允许下载多个文件。切换筛选保留已选文件，可用“取消选择”清空。
 - **访问令牌**：可限制只有持完整链接或新二维码的设备访问；网页不提供删除或重命名。
 
+在「关于与帮助」顶部点击「检查更新」，可查看适用于当前系统和架构的稳定版本、更新说明，并打开新版本下载地址。检查更新无需登录，详见 [更新接入说明](./docs/updates.md)。
+
 ## 产品反馈
 
-在客户端左侧底部点击「产品反馈」，或打开 [方序传文件反馈页](https://api.ip21.cn/products/10/feedback)。网页完成公众号登录后，可以提交问题分类、标题、复现描述、截图和可选联系邮箱。文件传输始终免费，无需账号或会员；反馈入口不会自动上传共享文件。也欢迎在 [GitHub Issues](https://github.com/goldenwind/fangxu-file-transfer/issues) 提交建议。
+在客户端左侧底部点击「产品反馈」，会在应用内的独立窗口打开反馈页面；也可直接打开 [方序传文件反馈页](https://api.ip21.cn/products/10/feedback)。客户端入口会自动携带软件版本、操作系统、系统版本和 CPU 架构，方便排查问题。网页完成公众号登录后，可以提交问题分类、标题、复现描述、截图和可选联系邮箱。文件传输始终免费，无需账号或会员；反馈入口不会自动上传共享文件。也欢迎在 [GitHub Issues](https://github.com/goldenwind/fangxu-file-transfer/issues) 提交建议。
 
 ## ☕ 支持与关注
 
@@ -116,7 +121,7 @@ npm run desktop:dev
 npm run desktop:build
 ```
 
-产物位于 `src-tauri/target/release/bundle/`。`./build-packages.sh` 也是当前系统的桌面打包入口；Go 传输组件会自动编译。GitHub Actions 分别构建 macOS 两种架构、Windows x64、Linux x64 / ARM64。详见 [桌面客户端开发与打包](./docs/desktop.md)。
+安装包位于 `src-tauri/target/release/bundle/`。`./build-packages.sh` 也是当前系统的桌面打包入口；Go 传输组件会自动编译。GitHub Actions 分别构建 macOS 两种架构、Windows x64、Linux x64 / ARM64，并额外提供 Windows 免安装 ZIP。详见 [桌面客户端开发与打包](./docs/desktop.md)。
 
 仍可只使用 Go 运行原有命令行 / 浏览器版本：
 

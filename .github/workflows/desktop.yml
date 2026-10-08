@@ -64,11 +64,15 @@ jobs:
             test "$GITHUB_REF_NAME" = "v$VERSION"
           fi
       - run: npm test
+      - name: Test release packaging
+        run: python -B -m unittest discover -s scripts -p "test_*.py"
       - run: go test -race ./...
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - name: Build desktop installer
+      - name: Build desktop client and installer
         env:
           NO_STRIP: 'true'
+          # Preserve the DMG background and icon layout on macOS runners.
+          TAURI_BUNDLER_DMG_IGNORE_CI: 'true'
         run: npm run desktop:build -- --bundles ${{ matrix.bundles }}
       - name: Collect release packages
         env:
@@ -99,7 +103,7 @@ jobs:
         run: |
           cd release-assets
           sha256sum * > SHA256SUMS.txt
-      - name: Publish installers
+      - name: Publish release packages
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

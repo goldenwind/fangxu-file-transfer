@@ -1,16 +1,16 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "方序传文件",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "identifier": "com.fangxu.file-transfer",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1438",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run desktop:icons && npm run build",
     "frontendDist": "../desktop-dist"
   },
   "app": {
-    "windows": [{ "label": "main", "title": "方序传文件", "width": 1120, "height": 800, "minWidth": 800, "minHeight": 640 }],
+    "windows": [{ "label": "main", "title": "方序传文件", "width": 1080, "height": 800, "minWidth": 800, "minHeight": 640 }],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-src 'none'"
     }
@@ -22,7 +22,16 @@
     "shortDescription": "局域网文件上传与下载",
     "externalBin": ["binaries/fangxu-transfer-service"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "macOS": { "minimumSystemVersion": "12.3", "infoPlist": "Info.plist" },
-    "windows": { "nsis": { "languages": ["SimpChinese", "English"], "displayLanguageSelector": true } }
+    "macOS": {
+      "minimumSystemVersion": "12.3",
+      "infoPlist": "Info.plist",
+      "dmg": {
+        "background": "../packaging/macos/dmg-background.png",
+        "windowSize": { "width": 660, "height": 460 },
+        "appPosition": { "x": 180, "y": 220 },
+        "applicationFolderPosition": { "x": 480, "y": 220 }
+      }
+    },
+    "windows": { "nsis": { "installerIcon": "icons/icon.ico", "uninstallerIcon": "icons/icon.ico", "languages": ["SimpChinese", "English"], "displayLanguageSelector": true } }
   }
 }

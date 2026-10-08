@@ -16,11 +16,14 @@ Use it to transfer photos, documents, ebooks, videos and installers between your
 | System | Package | Launch |
 | --- | --- | --- |
 | Windows x86-64 | `.exe` installer | Install and launch Fangxu File Transfer |
+| Windows x86-64 (portable) | `Windows-x64-portable.zip` | Extract fully and double-click `方序传文件.exe` |
 | macOS 12.3+ Intel / Apple Silicon | Separate `.dmg` for each architecture | Drag to Applications and launch |
 | Linux x86-64 | `.deb` / `.AppImage` | Install or run AppImage |
 | Linux ARM64 | `.deb` | Install and launch |
 
 On Windows, allow firewall access on private networks when starting the service. For unsigned macOS builds, right-click the app and choose Open if blocked. AppImage requires executable permission.
+
+For the Windows portable edition, keep `fangxu-transfer-service.exe` beside the app and extract the entire ZIP before launching. It requires [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/); if missing, install the runtime or use the app's installer. The portable and installed editions share the user configuration directory; settings do not travel with the extracted folder.
 
 ## Quick start
 
@@ -65,9 +68,11 @@ Screenshots use a dedicated sample folder and the client's default window size.
 - **Temporary sharing:** start and stop sharing manually; quitting stops the service. A second launch focuses the existing window.
 - **Access tokens:** optionally restrict access to devices with the full link or new QR code. The web interface offers no deletion or renaming.
 
+Use **Check for updates** at the top of **About & Help** to check the stable version for your system and architecture, read release notes, and open the new version download. No sign-in is required; see the [update integration guide](./docs/updates.md).
+
 ## Product feedback
 
-Click **Product Feedback** at the bottom of the client sidebar, or open the [product feedback page](https://api.ip21.cn/products/10/feedback). Sign in on the webpage through the existing WeChat official-account flow, then submit a category, title, description, optional screenshot and contact email. File transfers remain free and require no account or membership. Opening feedback does not upload shared files. You can also use [GitHub Issues](https://github.com/goldenwind/fangxu-file-transfer/issues).
+Click **Product Feedback** at the bottom of the client sidebar to open an in-app feedback window, or visit the [product feedback page](https://api.ip21.cn/products/10/feedback). The desktop entry automatically includes the app version, operating system, OS version and CPU architecture to help diagnose issues. Sign in on the webpage through the existing WeChat official-account flow, then submit a category, title, description, optional screenshot and contact email. File transfers remain free and require no account or membership. Opening feedback does not upload shared files. You can also use [GitHub Issues](https://github.com/goldenwind/fangxu-file-transfer/issues).
 
 ## Support & follow
 
@@ -114,7 +119,7 @@ Build the installer for the current operating system:
 npm run desktop:build
 ```
 
-Output is in `src-tauri/target/release/bundle/`. `./build-packages.sh` invokes the same desktop build. The Go component builds automatically. GitHub Actions builds macOS Intel / Apple Silicon, Windows x64 and Linux x64 / ARM64 packages. See [desktop development and packaging](./docs/desktop.md).
+Installers are in `src-tauri/target/release/bundle/`. `./build-packages.sh` invokes the same desktop build. The Go component builds automatically. GitHub Actions builds macOS Intel / Apple Silicon, Windows x64 and Linux x64 / ARM64 packages, plus a separate Windows portable ZIP. See [desktop development and packaging](./docs/desktop.md).
 
 The original Go CLI / browser edition remains available:
 

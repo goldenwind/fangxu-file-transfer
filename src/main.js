@@ -1,5 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import logo from '../assets/fangxu-file-transfer-logo.png';
+import { getVersion } from '@tauri-apps/api/app';
+import packageInfo from '../package.json';
+import logo from '../assets/fangxu-file-transfer-app-icon.png';
 import { escapeHTML as esc, readSettings, settingsEqual } from './helpers.js';
 import { initialLanguage, languageStorageKey, translations, translate, translateError } from './i18n.js';
 import './styles.css';
@@ -31,6 +33,12 @@ let lastPollError = '';
 let toastTimer;
 let toastMessage;
 let bootError = '';
+let currentVersion = packageInfo.version;
+let updateState = 'idle';
+let updateResult = null;
+let updateError = '';
+let openingUpdate = false;
+let openingFeedback = false;
 let language = initialLanguage({ getItem: key => localStorage.getItem(key) }, navigator.language || 'zh');
 const t = (key, values) => translate(language, key, values);
 const errorText = (error) => translateError(language, error);
@@ -39,12 +47,12 @@ const desktop = isTauri();
 document.querySelector('#app').innerHTML = `
   <aside class="sidebar">
     <a class="brand" href="#" aria-label="方序传文件首页"><span class="brand-logo"><img src="${logo}" alt=""/></span><span>方序<span class="brand-sub">传文件</span></span></a>
-    <div class="sidebar-caption">工作空间</div>
+    <div class="local-badge">${icon('shield')}本机直传 · 免费开源</div>
     <nav aria-label="主导航">
       <button class="nav-item active" data-view="transfer">${icon('transfer')}文件传输<span class="nav-mark"></span></button>
-      <button class="nav-item" data-view="settings">${icon('settings')}传输设置</button>
+      <button class="nav-item" data-view="settings">${icon('settings')}传输设置<span class="nav-mark"></span></button>
     </nav>
-    <div class="sidebar-bottom"><div class="local-badge">${icon('shield')}本机直传 · 免费开源</div><a id="feedback-link" class="nav-item" href="https://api.ip21.cn/products/10/feedback" target="_blank" rel="noopener noreferrer">${icon('feedback')}产品反馈</a><button class="nav-item" data-view="about">${icon('info')}关于与帮助</button><span class="version">方序传文件 <span>v1.1.0</span></span></div>
+    <div class="sidebar-bottom"><a id="feedback-link" class="nav-item" href="https://api.ip21.cn/products/10/feedback" target="_blank" rel="noopener noreferrer">${icon('feedback')}产品反馈</a><button class="nav-item" data-view="about">${icon('info')}关于与帮助</button><span class="version">方序传文件 <span id="app-version"></span></span></div>
   </aside>
   <div class="workspace">
     <main>
@@ -66,11 +74,18 @@ document.querySelector('#app').innerHTML = `
           <div class="settings-section"><label class="field-label" for="port">监听端口</label><div class="port-row"><input id="port" name="port" type="number" min="0" max="65535" step="1" required/><p class="helper">0 表示自动选择空闲端口。<br/>修改端口前需先停止服务。</p></div></div>
           <label class="settings-section switch-row"><span><span class="field-label">访问令牌保护</span><span class="helper">开启后，其他设备需要完整链接或二维码才能访问文件。</span></span><input id="protected" type="checkbox" role="switch"/><span class="switch" aria-hidden="true"></span></label>
           <label class="settings-section switch-row"><span><span class="field-label">打开客户端时启动服务</span><span class="helper">使用已保存的目录、端口与保护设置自动开始共享。</span></span><input id="auto-start" type="checkbox" role="switch" checked/><span class="switch" aria-hidden="true"></span></label>
-          <div class="settings-footer"><span id="settings-note" class="helper">设置保存在这台电脑上。</span><button id="save-settings" type="submit" class="button primary">保存设置</button></div>
+          <div class="settings-footer"><span id="settings-note" class="helper">设置保存在这台电脑上。</span><button id="save-settings" type="submit" class="button primary" disabled>保存设置</button></div>
         </form>
         <p class="bottom-note">${icon('info')}服务使用 HTTP 传输，请在可信局域网中使用；令牌保护不加密文件内容。</p>
       </section>
-      <section id="about-view" class="view" hidden><div class="page-heading"><div><h1>方寸之间，传递有序。</h1><p>方序传文件 · v1.1.0 · 免费开源</p></div></div><article class="panel about-panel"><h2>从电脑到手机，只需三步</h2><ol><li>让电脑与接收设备连接同一 Wi-Fi 或局域网。</li><li>在传输设置中选择共享目录，回到文件传输页面启动服务。</li><li>接收设备扫描二维码，使用系统浏览器上传或下载文件。</li></ol><h2>遇到连接问题？</h2><p>确认设备处于同一网络，检查 VPN、代理、防火墙及路由器的设备隔离设置。Windows 防火墙询问时，请允许专用网络访问。微信内无法下载时，请选择“在浏览器打开”。</p><h2>传完之后</h2><p>点击“停止服务”或退出客户端，其他设备将无法继续访问。停止会中断正在进行的传输。每次重新启动服务都会生成新的访问令牌。</p><h2>文件与隐私</h2><p>文件不会上传到第三方服务器。隐藏目录与以点开头的文件不会显示；同名上传自动追加序号。单次最多上传 100 个文件，总大小不超过 10 GB。</p></article></section>
+      <section id="about-view" class="view" hidden>
+        <div class="page-heading"><div><h1>方寸之间，传递有序。</h1><p id="about-version"></p></div></div>
+        <article class="panel update-panel" aria-labelledby="update-heading">
+          <div class="panel-heading"><div><h2 id="update-heading">版本更新</h2><p id="current-version"></p></div><button id="check-update" type="button" class="button secondary"></button></div>
+          <p id="update-status" role="status" aria-live="polite"></p>
+          <div id="update-details" hidden><h3 id="update-title"></h3><p id="update-notes"></p><button id="download-update" type="button" class="button primary">下载新版本 ↗</button></div>
+        </article>
+        <article class="panel about-panel"><h2>从电脑到手机，只需三步</h2><ol><li>让电脑与接收设备连接同一 Wi-Fi 或局域网。</li><li>在传输设置中选择共享目录，回到文件传输页面启动服务。</li><li>接收设备扫描二维码，使用系统浏览器上传或下载文件。</li></ol><h2>遇到连接问题？</h2><p>确认设备处于同一网络，检查 VPN、代理、防火墙及路由器的设备隔离设置。Windows 防火墙询问时，请允许专用网络访问。微信内无法下载时，请选择“在浏览器打开”。</p><h2>传完之后</h2><p>点击“停止服务”或退出客户端，其他设备将无法继续访问。停止会中断正在进行的传输。每次重新启动服务都会生成新的访问令牌。</p><h2>文件与隐私</h2><p>文件不会上传到第三方服务器。隐藏目录与以点开头的文件不会显示；同名上传自动追加序号。单次最多上传 100 个文件，总大小不超过 10 GB。</p></article></section>
     </main>
     <footer><span id="footer-status">本机服务未启动</span><span>macOS · Windows · Linux</span></footer>
   </div>
@@ -93,8 +108,10 @@ const staticAttributes = [...document.querySelectorAll('[aria-label]')]
   .filter(element => Object.hasOwn(translations, element.getAttribute('aria-label')))
   .map(element => ({ element, key: element.getAttribute('aria-label') }));
 
-function renderSettingsNote() {
-  $('#settings-note').textContent = t(draft && status && !settingsEqual(draft, status.settings) ? '有未保存的修改' : '设置保存在这台电脑上。');
+function renderSettingsState() {
+  const changed = draft && status && !settingsEqual(draft, status.settings);
+  $('#settings-note').textContent = t(changed ? '有未保存的修改' : '设置保存在这台电脑上。');
+  $('#save-settings').disabled = busy || !changed;
 }
 
 function renderBoot() {
@@ -116,8 +133,9 @@ function setLanguage(next) {
     button.setAttribute('aria-pressed', String(active));
   }
   if (toastMessage && !$('#toast').hidden) $('#toast').textContent = toastMessage.error ? errorText(toastMessage.message) : t(toastMessage.message);
-  renderSettingsNote();
+  renderSettingsState();
   renderBoot();
+  renderUpdates();
   render();
   try { localStorage.setItem(languageStorageKey, language); } catch { /* Keep switching available without storage. */ }
 }
@@ -132,9 +150,53 @@ $('#github-link').addEventListener('click', async (event) => {
 $('#feedback-link').addEventListener('click', async (event) => {
   if (!desktop) return;
   event.preventDefault();
-  try { await invoke('open_product_feedback'); }
+  if (openingFeedback) return;
+  openingFeedback = true;
+  try { await invoke('open_product_feedback', { language }); }
   catch (error) { notify(error, true); }
+  finally { openingFeedback = false; }
 });
+function renderUpdates() {
+  $('#app-version').textContent = `v${currentVersion}`;
+  $('#about-version').textContent = t('方序传文件 · v{version} · 免费开源', { version: currentVersion });
+  $('#current-version').textContent = t('当前版本：v{version}', { version: currentVersion });
+  $('#check-update').textContent = t(updateState === 'checking' ? '正在检查更新…' : '检查更新');
+  $('#check-update').disabled = !desktop || updateState === 'checking' || openingUpdate;
+  const available = updateState === 'done' && updateResult?.update_available;
+  $('#update-details').hidden = !available;
+  const message = !desktop ? '请在桌面客户端中检查更新。' : updateState === 'checking' ? '正在检查更新…'
+    : updateState === 'error' ? '更新检查未完成，请重试。' : available ? (updateResult.force_update ? '当前版本需要升级，请下载并安装：' : '发现新版本：')
+    : updateState === 'done' ? '当前已是最新版本。' : '手动检查是否有适用于此电脑的新版本。';
+  $('#update-status').textContent = t(message)
+    + (available ? ` v${updateResult.latest_version.replace(/^[vV]/, '')}` : '')
+    + (updateState === 'error' ? ` ${errorText(updateError)}` : '');
+  $('#update-status').classList.toggle('error', updateState === 'error' || Boolean(available && updateResult.force_update));
+  $('#update-title').textContent = available ? updateResult.title : '';
+  $('#update-title').hidden = !updateResult?.title;
+  $('#update-notes').textContent = available ? updateResult.release_notes : '';
+  $('#update-notes').hidden = !updateResult?.release_notes;
+  $('#download-update').disabled = openingUpdate;
+}
+
+$('#check-update').addEventListener('click', async () => {
+  if (!desktop || updateState === 'checking' || openingUpdate) return;
+  updateState = 'checking'; updateResult = null; updateError = ''; renderUpdates();
+  try {
+    updateResult = await invoke('check_product_update');
+    currentVersion = updateResult.current_version;
+    updateState = 'done';
+  } catch (error) {
+    updateState = 'error'; updateError = String(error);
+  } finally { renderUpdates(); }
+});
+$('#download-update').addEventListener('click', async () => {
+  if (!desktop || openingUpdate || !updateResult?.update_available) return;
+  openingUpdate = true; renderUpdates();
+  try { await invoke('open_product_update'); }
+  catch (error) { updateError = String(error); updateState = 'error'; }
+  finally { openingUpdate = false; renderUpdates(); }
+});
+if (desktop) void getVersion().then(version => { currentVersion = version; renderUpdates(); }).catch(error => console.error(error));
 setLanguage(language);
 
 function notify(message, error = false) {
@@ -148,7 +210,8 @@ function notify(message, error = false) {
 
 function showView(next) {
   view = next;
-  for (const element of document.querySelectorAll('.view')) element.hidden = element.id !== `${next}-view` || !status;
+  $('#boot').hidden = Boolean(status) || next === 'about';
+  for (const element of document.querySelectorAll('.view')) element.hidden = element.id !== `${next}-view` || (!status && next !== 'about');
   for (const button of document.querySelectorAll('.nav-item')) button.classList.toggle('active', button.dataset.view === next);
 }
 
@@ -204,6 +267,8 @@ function render() {
   $('#directory-name').textContent = status.settings.directory.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || status.settings.directory;
   $('#footer-status').textContent = running ? t('服务运行中 · 端口 {port} · {protection}', { port: status.port, protection: t(status.settings.protected ? '令牌保护已开启' : '令牌保护未开启') }) : t('本机服务未启动');
   for (const button of document.querySelectorAll('main button:not([data-language])')) button.disabled = busy;
+  renderSettingsState();
+  renderUpdates();
   $('#port').disabled = busy || running;
   for (const input of document.querySelectorAll('#settings-form input:not(#port)')) input.disabled = busy;
   renderConnections();
@@ -245,7 +310,7 @@ $('#confirm-stop').addEventListener('click', () => { $('#stop-dialog').close(); 
 $('#settings-form').addEventListener('input', () => {
   // Keep the raw draft while editing so polling never overwrites user input.
   draft = { directory: $('#directory').value, port: Number($('#port').value), protected: $('#protected').checked, autoStart: $('#auto-start').checked };
-  renderSettingsNote();
+  renderSettingsState();
 });
 $('#choose-directory').addEventListener('click', async () => {
   const path = await operation('choose_directory', { language });
@@ -253,10 +318,11 @@ $('#choose-directory').addEventListener('click', async () => {
 });
 $('#settings-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (busy || !status || !draft || settingsEqual(draft, status.settings)) return;
   try {
     const settings = formSettings();
     const result = await operation('save_settings', { settings }, '设置已保存');
-    if (result) { draft = { ...result.settings }; renderForm(); renderSettingsNote(); }
+    if (result) { draft = { ...result.settings }; renderForm(); renderSettingsState(); }
   } catch (error) { notify(error.message, true); }
 });
 

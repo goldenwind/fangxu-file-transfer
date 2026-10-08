@@ -26,9 +26,22 @@ npm run desktop:build -- --bundles nsis
 npm run desktop:build -- --bundles deb,appimage
 ```
 
-桌面版支持 macOS 12.3+、Windows 10 / 11（WebView2）和安装了 WebKitGTK 4.1 的 Linux。各平台安装包在对应系统上构建。CI 为 macOS Intel / Apple Silicon、Windows x64、Linux x64 / ARM64 安装包配置了测试与 artifact 上传。推送与应用版本一致的 `v*` 标签（例如 `v1.1.0`）后，全部平台构建通过才发布 GitHub Release，附带 SHA256 校验文件；手动运行仅构建产物，除非所选 ref 本身是版本标签。签名、公证需发布者提供证书。
+macOS DMG 打开后显示中英文拖拽安装引导：左侧为应用，右侧为指向 `/Applications` 的快捷方式，中间箭头提示将应用拖入「应用程序」。窗口尺寸、图标位置和背景由 `src-tauri/tauri.conf.json` 的 `bundle.macOS.dmg` 配置；660 × 460 的窗口为 660 × 400 的背景预留标题栏和路径栏空间，避免出现滚动条。背景设计源文件为 `packaging/macos/dmg-background.svg`，打包使用同目录的 PNG，无需在 CI 安装字体或图片转换工具。修改 SVG 后可使用 `rsvg-convert packaging/macos/dmg-background.svg -o packaging/macos/dmg-background.png` 更新 PNG。GitHub Actions 设置 `TAURI_BUNDLER_DMG_IGNORE_CI=true`，确保 macOS 构建也写入 Finder 背景和图标布局。
 
-桌面应用图标使用 `assets/fangxu-file-transfer-app-icon.png`，主体放大并居中，保留少量透明边距。更新此文件后运行 `npm run desktop:icons`，生成 `src-tauri/icons/` 中各平台所需的 PNG、ICNS 与 ICO，再构建安装包。macOS 应用、Dock 和 DMG 使用同一套图标；界面内的 Logo 继续使用原始素材。
+Windows x64 构建还可单独生成免安装 ZIP。在 Windows x64 上运行：
+
+```sh
+npm run desktop:build -- --no-bundle
+python scripts/collect-release.py --platform Windows-x64 --portable-only
+```
+
+输出为 `release-assets/Fangxu-File-Transfer-<版本>-Windows-x64-portable.zip`，包含同目录的「方序传文件.exe」、`fangxu-transfer-service.exe`、中英文使用说明和许可证。主程序使用已有软件图标；用户完整解压后双击主程序即可启动，无需安装本软件。ZIP 使用 `build.rs` 生成的 x86_64 MSVC 传输组件，打包前检查必需文件，避免生成缺少组件的分发包。
+
+免安装版依赖系统已安装的 [WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。若缺少，可从微软安装 Evergreen Runtime，或使用本软件的安装版。配置仍写入下面的用户配置目录，与安装版共用，不随解压文件夹移动。
+
+桌面版支持 macOS 12.3+、Windows 10 / 11（WebView2）和安装了 WebKitGTK 4.1 的 Linux。各平台安装包在对应系统上构建。CI 为 macOS Intel / Apple Silicon、Windows x64、Linux x64 / ARM64 安装包配置了测试与 artifact 上传，Windows 同时提供免安装 ZIP。推送与应用版本一致的 `v*` 标签（例如 `v1.1.1`）后，全部平台构建通过才发布 GitHub Release，安装版与免安装版均附带 SHA256 校验文件；手动运行仅构建产物，除非所选 ref 本身是版本标签。签名、公证需发布者提供证书。
+
+图标的唯一设计源文件为 `assets/fangxu-file-transfer-app-icon.svg`，采用软件界面的柔和蓝色主色（`--accent: #5269c7`）作为背景、浅蓝白（`--accent-soft: #f0f3ff`）作为图形颜色，保留文件传到手机的标识。运行 `npm run desktop:icons`，生成 1024px PNG 和 `src-tauri/icons/` 中各平台所需的 PNG、ICNS 与 ICO；兼容旧路径的 `assets/fangxu-file-transfer-logo.png` 同步生成相同内容。桌面界面、网页 Logo 与 favicon、macOS 应用与 Dock、DMG、Windows 主程序、NSIS 安装与卸载程序及免安装版共用此设计。界面按原比例显示完整图标，不放大裁切。桌面打包前自动重新生成图标，避免设计稿与分发资源不一致。
 
 客户端配色与浏览器传文件页面一致。右上角提供 GitHub 链接，使用系统浏览器打开；“中文 / EN”切换覆盖导航、状态、设置和帮助；语言选择保存在本机，重新打开后恢复，切换语言不会重置未保存的设置。
 

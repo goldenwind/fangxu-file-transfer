@@ -10,6 +10,9 @@ use std::{
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
+mod feedback;
+mod updates;
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Settings {
@@ -214,13 +217,6 @@ async fn open_shared_directory(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_product_feedback(app: tauri::AppHandle) -> Result<(), String> {
-    app.opener()
-        .open_url("https://api.ip21.cn/products/10/feedback", None::<&str>)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn open_github(app: tauri::AppHandle) -> Result<(), String> {
     app.opener()
         .open_url(
@@ -241,6 +237,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .manage(Service::default())
+        .manage(updates::UpdateState::default())
         .setup(|app| {
             // Launch the worker during native startup, before the WebView asks
             // for status. Go immediately starts sharing when autoStart is on.
@@ -270,7 +267,9 @@ pub fn run() {
             choose_directory,
             open_file_browser,
             open_github,
-            open_product_feedback,
+            feedback::open_product_feedback,
+            updates::check_product_update,
+            updates::open_product_update,
             open_shared_directory
         ])
         .build(tauri::generate_context!())

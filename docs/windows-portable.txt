@@ -1,0 +1,33 @@
+方序传文件 · Windows x64 免安装版
+
+1. 将 ZIP 完整解压到一个文件夹，不要直接在压缩包内运行。
+2. 双击「方序传文件.exe」即可启动，无需安装本软件。
+3. 请保留同一文件夹中的 fangxu-transfer-service.exe，它是必需的传输组件。
+4. 手机与电脑连接同一 Wi-Fi，在客户端扫码即可传文件。
+
+系统要求：Windows 10 / 11 x64，并已安装 Microsoft Edge WebView2 Runtime。
+Windows 11 和大多数 Windows 10 电脑已有此组件。若缺少，请从微软官网下载
+Evergreen WebView2 Runtime，或使用本软件的安装版自动安装所需组件：
+https://developer.microsoft.com/microsoft-edge/webview2/
+
+首次启动服务时，请允许 Windows 防火墙访问「专用网络」。
+设置保存在 %APPDATA%\com.fangxu.file-transfer\settings.json，
+与安装版共用；设置不会随此文件夹一起移动。退出客户端会自动停止传输服务。
+
+更新：关闭客户端后，完整解压新版本并启动。移除：关闭客户端后删除解压文件夹。
+保存在用户配置目录中的设置不会随文件夹删除。
+
+English
+
+Extract the entire ZIP, then double-click 方序传文件.exe. Do not run it inside
+the archive. Keep fangxu-transfer-service.exe next to the app; it is required.
+No installation of this app, Go, Rust or Node.js is needed.
+
+Requires Windows 10 / 11 x64 and Microsoft Edge WebView2 Runtime. If the
+runtime is missing, download the Evergreen Runtime from the Microsoft link
+above, or use the app's installer to install the required runtime.
+Allow firewall access on private networks when starting the service.
+Settings are stored in %APPDATA%\com.fangxu.file-transfer\settings.json,
+shared with the installed edition; they do not travel with this folder.
+Quit the app before updating or deleting the extracted folder. Quitting
+automatically stops the transfer service. Deleting the folder keeps settings.

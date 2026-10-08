@@ -29,7 +29,7 @@ fn main() {
         "desktop.go",
         "go.mod",
         "go.sum",
-        "assets/fangxu-file-transfer-logo.png",
+        "assets/fangxu-file-transfer-app-icon.png",
     ] {
         println!("cargo:rerun-if-changed=../{source}");
     }
