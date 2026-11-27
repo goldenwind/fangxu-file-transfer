@@ -104,7 +104,7 @@ Fangxu File Transfer will remain free and open source. If it saves you time, you
 <table>
   <tr>
     <td align="center" width="33%"><strong>Alipay</strong><br><br><img src="https://cdn.ip21.cn/img/common/alipay-qrcode.jpg" width="160" alt="Alipay donation QR code"></td>
-    <td align="center" width="33%"><strong>WeChat Pay</strong><br><br><img src="https://cdn.ip21.cn/img/common/wechatpay-qrcode.jpg" width="160" alt="WeChat Pay donation QR code"></td>
+    <td align="center" width="33%"><strong>WeChat Pay</strong><br><br><img src="./assets/donation/wechat-appreciation.png" width="160" alt="WeChat Pay donation QR code"></td>
     <td align="center" width="33%"><strong>Follow Yideng AI (一灯 AI)</strong><br><br><img src="https://cdn.ip21.cn/img/common/wechat-pub.png" width="160" alt="Yideng AI WeChat official account QR code"></td>
   </tr>
 </table>

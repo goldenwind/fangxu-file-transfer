@@ -106,7 +106,7 @@ Windows 免安装版请保留解压目录里的 `fangxu-transfer-service.exe`，
 <table>
   <tr>
     <td align="center" width="33%"><strong>支付宝赞赏</strong><br><br><img src="https://cdn.ip21.cn/img/common/alipay-qrcode.jpg" width="160" alt="支付宝赞赏二维码"></td>
-    <td align="center" width="33%"><strong>微信赞赏</strong><br><br><img src="https://cdn.ip21.cn/img/common/wechatpay-qrcode.jpg" width="160" alt="微信赞赏二维码"></td>
+    <td align="center" width="33%"><strong>微信赞赏</strong><br><br><img src="./assets/donation/wechat-appreciation.png" width="160" alt="微信赞赏二维码"></td>
     <td align="center" width="33%"><strong>关注「一灯 AI」</strong><br><br><img src="https://cdn.ip21.cn/img/common/wechat-pub.png" width="160" alt="一灯 AI 微信公众号二维码"></td>
   </tr>
 </table>
