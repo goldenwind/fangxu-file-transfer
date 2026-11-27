@@ -1,7 +1,7 @@
-方序传文件 · Windows x64 免安装版
+方序快传 · Windows x64 免安装版
 
 1. 将 ZIP 完整解压到一个文件夹，不要直接在压缩包内运行。
-2. 双击「方序传文件.exe」即可启动，无需安装本软件。
+2. 双击「方序快传.exe」即可启动，无需安装本软件。
 3. 请保留同一文件夹中的 fangxu-transfer-service.exe，它是必需的传输组件。
 4. 手机与电脑连接同一 Wi-Fi，在客户端扫码即可传文件。
 
@@ -19,7 +19,7 @@ https://developer.microsoft.com/microsoft-edge/webview2/
 
 English
 
-Extract the entire ZIP, then double-click 方序传文件.exe. Do not run it inside
+Extract the entire ZIP, then double-click 方序快传.exe. Do not run it inside
 the archive. Keep fangxu-transfer-service.exe next to the app; it is required.
 No installation of this app, Go, Rust or Node.js is needed.
 

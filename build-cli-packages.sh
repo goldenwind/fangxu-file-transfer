@@ -8,17 +8,17 @@ transfer_stage_dir="$(mktemp -d)"
 trap 'rm -rf "$transfer_stage_dir"' EXIT HUP INT TERM
 
 cd "$transfer_source_dir"
-mkdir -p "$transfer_build_dir/方序传文件.app/Contents/MacOS" \
-  "$transfer_build_dir/方序传文件.app/Contents/Resources" "$transfer_dist_dir" \
-  "$transfer_stage_dir/方序传文件-Windows"
+mkdir -p "$transfer_build_dir/方序快传.app/Contents/MacOS" \
+  "$transfer_build_dir/方序快传.app/Contents/Resources" "$transfer_dist_dir" \
+  "$transfer_stage_dir/方序快传-Windows"
 
 echo "Building Windows x86-64…"
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags=-s \
-  -o "$transfer_stage_dir/方序传文件-Windows/Fangxu-File-Transfer.exe" "$transfer_source_dir"
-cp "$transfer_source_dir/packaging/windows/双击运行.bat" "$transfer_stage_dir/方序传文件-Windows/双击运行.bat"
-cp "$transfer_source_dir/README.md" "$transfer_stage_dir/方序传文件-Windows/README.md"
-cp "$transfer_source_dir/README_EN.md" "$transfer_stage_dir/方序传文件-Windows/README_EN.md"
-cp "$transfer_source_dir/LICENSE" "$transfer_stage_dir/方序传文件-Windows/LICENSE"
+  -o "$transfer_stage_dir/方序快传-Windows/Fangxu-File-Transfer.exe" "$transfer_source_dir"
+cp "$transfer_source_dir/packaging/windows/双击运行.bat" "$transfer_stage_dir/方序快传-Windows/双击运行.bat"
+cp "$transfer_source_dir/README.md" "$transfer_stage_dir/方序快传-Windows/README.md"
+cp "$transfer_source_dir/README_EN.md" "$transfer_stage_dir/方序快传-Windows/README_EN.md"
+cp "$transfer_source_dir/LICENSE" "$transfer_stage_dir/方序快传-Windows/LICENSE"
 
 echo "Building Linux x86-64 and ARM64…"
 for transfer_arch in amd64 arm64; do
@@ -40,10 +40,10 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags=-s \
   -o "$transfer_build_dir/fangxu-file-transfer-macos-amd64" "$transfer_source_dir"
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags=-s \
   -o "$transfer_build_dir/fangxu-file-transfer-macos-arm64" "$transfer_source_dir"
-lipo -create -output "$transfer_build_dir/方序传文件.app/Contents/MacOS/fangxu-file-transfer-bin" \
+lipo -create -output "$transfer_build_dir/方序快传.app/Contents/MacOS/fangxu-file-transfer-bin" \
   "$transfer_build_dir/fangxu-file-transfer-macos-amd64" "$transfer_build_dir/fangxu-file-transfer-macos-arm64"
-cp "$transfer_source_dir/packaging/macos/Info.plist" "$transfer_build_dir/方序传文件.app/Contents/Info.plist"
-cp "$transfer_source_dir/packaging/macos/方序传文件" "$transfer_build_dir/方序传文件.app/Contents/MacOS/方序传文件"
+cp "$transfer_source_dir/packaging/macos/Info.plist" "$transfer_build_dir/方序快传.app/Contents/Info.plist"
+cp "$transfer_source_dir/packaging/macos/方序快传" "$transfer_build_dir/方序快传.app/Contents/MacOS/方序快传"
 transfer_iconset="$transfer_stage_dir/FangxuFileTransfer.iconset"
 mkdir -p "$transfer_iconset"
 for transfer_size in 16 32 128 256 512; do
@@ -54,14 +54,14 @@ for transfer_size in 16 32 128 256 512; do
     --out "$transfer_iconset/icon_${transfer_size}x${transfer_size}@2x.png" >/dev/null
 done
 go run "$transfer_source_dir/packaging/macos/make-icns.go" "$transfer_iconset" \
-  "$transfer_build_dir/方序传文件.app/Contents/Resources/FangxuFileTransfer.icns"
-chmod +x "$transfer_build_dir/方序传文件.app/Contents/MacOS/方序传文件" \
-  "$transfer_build_dir/方序传文件.app/Contents/MacOS/fangxu-file-transfer-bin"
-codesign --force --deep --sign - "$transfer_build_dir/方序传文件.app"
-ditto -c -k --sequesterRsrc --keepParent "$transfer_build_dir/方序传文件.app" \
+  "$transfer_build_dir/方序快传.app/Contents/Resources/FangxuFileTransfer.icns"
+chmod +x "$transfer_build_dir/方序快传.app/Contents/MacOS/方序快传" \
+  "$transfer_build_dir/方序快传.app/Contents/MacOS/fangxu-file-transfer-bin"
+codesign --force --deep --sign - "$transfer_build_dir/方序快传.app"
+ditto -c -k --sequesterRsrc --keepParent "$transfer_build_dir/方序快传.app" \
   "$transfer_dist_dir/Fangxu-File-Transfer-macOS.zip"
 
-ditto -c -k --norsrc --keepParent "$transfer_stage_dir/方序传文件-Windows" \
+ditto -c -k --norsrc --keepParent "$transfer_stage_dir/方序快传-Windows" \
   "$transfer_dist_dir/Fangxu-File-Transfer-Windows-amd64.zip"
 
 echo "Packages written to: $transfer_dist_dir"

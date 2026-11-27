@@ -27,6 +27,7 @@ fn main() {
     for source in [
         "main.go",
         "desktop.go",
+        "relay.go",
         "go.mod",
         "go.sum",
         "assets/fangxu-file-transfer-app-icon.png",

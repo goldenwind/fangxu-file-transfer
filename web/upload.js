@@ -70,7 +70,7 @@
     });
   }
 
-  function mount({ t, translatedText, onSaved = async () => {} }) {
+  function mount({ t, translatedText, onSaved = async () => {}, onView = () => {} }) {
     const $ = selector => document.querySelector(selector);
     const form = $('.upload-form'), picker = $('#upload-files'), photos = $('#upload-photos');
     const selection = $('#upload-selection'), submit = $('.upload-submit'), clear = $('#upload-clear');
@@ -192,6 +192,7 @@
     pause.addEventListener('click', () => { pauseRequested = true; render(); });
     refresh.addEventListener('click', async event => {
       event.preventDefault();
+      onView();
       try { await onSaved(); } catch (_) { /* Keep the queue when the service is unavailable. */ }
       $('#list').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });

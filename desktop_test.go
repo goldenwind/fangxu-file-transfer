@@ -52,6 +52,7 @@ func testController(t *testing.T) *desktopController {
 
 func TestDesktopServiceLifecycle(t *testing.T) {
 	c := testController(t)
+	c.settings.Protected = true
 	mustWrite(t, filepath.Join(c.settings.Directory, "hello.txt"), "hello desktop")
 	if c.status().Running {
 		t.Fatal("service must be stopped initially")
@@ -59,15 +60,21 @@ func TestDesktopServiceLifecycle(t *testing.T) {
 	if err := c.start(); err != nil {
 		t.Fatal(err)
 	}
-	firstToken := c.handler.token
+	firstCode := c.handler.accessCode
 	status := c.status()
 	if !status.Running || status.Port == 0 || status.LocalURL == "" {
 		t.Fatalf("invalid running status: %+v", status)
 	}
+	for _, address := range status.Addresses {
+		link, err := url.Parse(address.URL)
+		if err != nil || link.Path != "/"+firstCode || link.RawQuery != "" {
+			t.Fatalf("invalid protected share URL: %q", address.URL)
+		}
+	}
 	if err := c.start(); err != nil {
 		t.Fatal(err)
 	}
-	if c.handler.token != firstToken {
+	if c.handler.accessCode != firstCode {
 		t.Fatal("repeated start replaced a running service")
 	}
 	response, err := http.Get(status.LocalURL + "download?path=hello.txt")
@@ -95,8 +102,8 @@ func TestDesktopServiceLifecycle(t *testing.T) {
 	if err := c.start(); err != nil {
 		t.Fatal(err)
 	}
-	if c.handler.token == firstToken {
-		t.Fatal("restart reused old access token")
+	if c.handler.accessCode == firstCode {
+		t.Fatal("restart reused old access code")
 	}
 }
 
@@ -266,5 +273,56 @@ func TestDesktopStartsBeforeFirstCommandAndEOFCleansUp(t *testing.T) {
 	if conn, err := net.DialTimeout("tcp", u.Host, time.Second); err == nil {
 		conn.Close()
 		t.Fatal("EOF left sharing enabled")
+	}
+}
+
+func TestDesktopChecksSharedDirectoryWithAutostartOff(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("HOME", cache)
+	t.Setenv("LocalAppData", cache)
+	for _, tc := range []struct {
+		name      string
+		directory func(t *testing.T) string
+		wantError string
+	}{
+		{name: "empty folder", directory: func(t *testing.T) string { return t.TempDir() }},
+		{name: "missing folder", directory: func(t *testing.T) string {
+			return filepath.Join(t.TempDir(), "missing")
+		}, wantError: "共享目录不可用"},
+		{name: "unreadable folder", directory: func(t *testing.T) string {
+			path := t.TempDir()
+			if err := os.Chmod(path, 0o300); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(path, 0o700) })
+			if _, err := os.ReadDir(path); !os.IsPermission(err) {
+				t.Skipf("folder mode does not deny reading on this system: %v", err)
+			}
+			return path
+		}, wantError: "没有共享目录的访问权限"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := filepath.Join(t.TempDir(), "settings.json")
+			settings := desktopSettings{Directory: tc.directory(t), AutoStart: false}
+			if err := saveDesktopSettings(config, settings); err != nil {
+				t.Fatal(err)
+			}
+			var output strings.Builder
+			if err := runDesktop(strings.NewReader("{\"action\":\"status\"}\n"), &output, config); err != nil {
+				t.Fatal(err)
+			}
+			var response desktopResponse
+			if err := json.Unmarshal([]byte(output.String()), &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Error != "" || response.Status.Running || response.Status.Settings != settings {
+				t.Fatalf("startup must keep the service stopped and preserve settings: %+v", response)
+			}
+			got := response.Status.Error
+			if tc.wantError == "" && got != "" || !strings.HasPrefix(got, tc.wantError) {
+				t.Fatalf("startup status error = %q, want prefix %q", got, tc.wantError)
+			}
+		})
 	}
 }

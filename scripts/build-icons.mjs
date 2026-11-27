@@ -9,7 +9,7 @@ const output = mkdtempSync(join(tmpdir(), 'fangxu-file-icons-'));
 const source = resolve(root, 'assets/fangxu-file-transfer-app-icon.svg');
 const cli = resolve(root, 'node_modules/@tauri-apps/cli/tauri.js');
 try {
-  execFileSync(process.execPath, [cli, 'icon', source, '--output', join(output, 'platforms'), '--ios-color', '#5269c7'], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, [cli, 'icon', source, '--output', join(output, 'platforms'), '--ios-color', '#2563EB'], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, [cli, 'icon', source, '--output', join(output, 'master'), '--png', '1024'], { cwd: root, stdio: 'inherit' });
   cpSync(join(output, 'platforms'), resolve(root, 'src-tauri/icons'), { recursive: true });
   for (const name of ['fangxu-file-transfer-app-icon.png', 'fangxu-file-transfer-logo.png']) {

@@ -170,7 +170,7 @@ func TestUploadJSONRetryStillRequiresValidAccessTokens(t *testing.T) {
 	handler := s.routes(8080)
 	id := strings.Repeat("d", 32)
 	request := uploadRequest(t, s, id, "ok.jpg")
-	request.URL.RawQuery += "&token=" + s.token
+	request.URL.RawQuery += "&token=" + s.accessCode
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {

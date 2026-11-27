@@ -110,6 +110,6 @@ jobs:
           gh release create "$GITHUB_REF_NAME" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "方序传文件 $GITHUB_REF_NAME" \
+            --title "方序快传 $GITHUB_REF_NAME" \
             --notes-file docs/release-notes.md \
             --latest

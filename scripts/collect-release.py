@@ -33,7 +33,7 @@ def collect_installers(version, platform, output):
 def collect_windows_portable(version, output):
     # The release client resolves its Go component next to its own executable.
     files = {
-        Path("src-tauri/target/release/fangxu-file-transfer-desktop.exe"): "方序传文件.exe",
+        Path("src-tauri/target/release/fangxu-file-transfer-desktop.exe"): "方序快传.exe",
         Path("src-tauri/binaries/fangxu-transfer-service-x86_64-pc-windows-msvc.exe"):
             "fangxu-transfer-service.exe",
         Path("docs/windows-portable.txt"): "使用说明-README.txt",

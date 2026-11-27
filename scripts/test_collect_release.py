@@ -51,7 +51,7 @@ class ReleasePackagingTests(unittest.TestCase):
             extracted = self.root / "folder with spaces" / "中文"
             archive.extractall(extracted)
         folder = extracted / PORTABLE_NAME
-        self.assertEqual((folder / "方序传文件.exe").read_bytes(), b"MZ-client")
+        self.assertEqual((folder / "方序快传.exe").read_bytes(), b"MZ-client")
         self.assertEqual((folder / "fangxu-transfer-service.exe").read_bytes(), b"MZ-service")
         self.assertEqual((folder / "LICENSE.txt").read_bytes(), b"test license")
         self.assertIn("WebView2", (folder / "使用说明-README.txt").read_text(encoding="utf-8"))

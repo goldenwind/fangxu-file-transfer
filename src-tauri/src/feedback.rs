@@ -65,7 +65,7 @@ pub async fn open_product_feedback(
         let title = if language.as_deref() == Some("en") {
             "Product feedback · Fangxu File Transfer"
         } else {
-            "产品反馈 · 方序传文件"
+            "产品反馈 · 方序快传"
         };
         if let Some(window) = app.get_webview_window(FEEDBACK_WINDOW) {
             // Reuse the page without navigating, preserving the user's draft/login.

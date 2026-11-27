@@ -3,7 +3,7 @@
   <g text-anchor="middle" font-family="PingFang SC, Noto Sans CJK SC, sans-serif">
     <text x="330" y="64" font-size="26" font-weight="600" fill="#26345e">拖动到 Applications 即可安装</text>
     <text x="330" y="96" font-size="15" fill="#677394">Drag the app into Applications to install</text>
-    <text x="330" y="328" font-size="15" fill="#677394">安装后，从「应用程序」打开方序传文件</text>
+    <text x="330" y="328" font-size="15" fill="#677394">安装后，从「应用程序」打开方序快传</text>
     <text x="330" y="352" font-size="13" fill="#677394">Once installed, open Fangxu File Transfer from Applications</text>
   </g>
   <!-- Finder places the app at (180, 220) and Applications at (480, 220). -->

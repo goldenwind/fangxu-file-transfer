@@ -39,6 +39,7 @@ const (
 	maxUploadBytes    = 10 << 30
 	maxUploadFiles    = 5000
 	maxUploadReceipts = 10000
+	maxCodeFailures   = 20
 )
 
 //go:embed assets/fangxu-file-transfer-app-icon.png
@@ -73,6 +74,7 @@ type pageData struct {
 	Addresses   []accessAddress
 	Status      string
 	WeChat      bool
+	UploadTab   bool
 }
 
 type accessAddress struct {
@@ -89,6 +91,8 @@ type server struct {
 	root           string
 	resolvedRoot   string
 	token          string
+	accessCode     string
+	codeAttempts   accessCodeAttempts
 	protected      bool
 	stopToken      string
 	instanceToken  string
@@ -104,6 +108,9 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) == 2 && os.Args[1] == "--relay-upload" {
+		return runRelayUpload(os.Stdin, os.Stdout)
+	}
 	directory := flag.String("dir", "", "要共享的目录（默认：Downloads）")
 	listen := flag.String("listen", defaultListen, "监听地址")
 	noOpen := flag.Bool("no-open", false, "启动后不打开电脑浏览器")
@@ -123,7 +130,7 @@ func run() error {
 		return fmt.Errorf("检查已运行服务失败: %w", err)
 	}
 	if existingURL != "" {
-		fmt.Println("方序传文件服务已在运行：", existingURL)
+		fmt.Println("方序快传服务已在运行：", existingURL)
 		if !*noOpen {
 			if err := openBrowser(existingURL); err != nil {
 				return fmt.Errorf("无法打开已运行服务，请手动访问 %s: %w", existingURL, err)
@@ -161,8 +168,8 @@ func run() error {
 	handler.setShutdown(func() { _ = httpServer.Close() })
 
 	sharedRoot, _ := handler.roots()
-	fmt.Printf("\n方序传文件\n共享目录：%s\n\n", sharedRoot)
-	for _, address := range accessURLs(port, false, handler.token) {
+	fmt.Printf("\n方序快传\n共享目录：%s\n\n", sharedRoot)
+	for _, address := range accessURLs(port, false, handler.accessCode) {
 		fmt.Println("手机访问：", address)
 	}
 	fmt.Println("\n服务正在运行。可在电脑页面停止传输服务，或按 Ctrl+C 退出。")
@@ -191,6 +198,10 @@ func newServer(root string) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	code, err := randomAccessCode()
+	if err != nil {
+		return nil, err
+	}
 	stopToken, err := randomToken()
 	if err != nil {
 		return nil, err
@@ -199,7 +210,7 @@ func newServer(root string) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &server{root: abs, resolvedRoot: resolved, token: token, stopToken: stopToken, page: page}, nil
+	return &server{root: abs, resolvedRoot: resolved, token: token, accessCode: code, stopToken: stopToken, page: page}, nil
 }
 
 func (s *server) routes(port int) http.Handler {
@@ -216,7 +227,7 @@ func (s *server) routes(port int) http.Handler {
 	mux.HandleFunc("/security", s.changeSecurity)
 	mux.HandleFunc("/health", s.health)
 	mux.HandleFunc("/stop", s.stop)
-	return securityHeaders(mux)
+	return securityHeaders(s.limitAccessCodeAttempts(mux))
 }
 
 func logo(w http.ResponseWriter, r *http.Request) {
@@ -270,12 +281,63 @@ func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) authorized(r *http.Request) bool {
-	if isLoopbackRequest(r) || !s.isProtected() {
-		return true
+func (s *server) authorized(r *http.Request, protected bool) bool {
+	return !protected || isLoopbackRequest(r) || s.matchesAccessCode(r.URL.Query().Get("token"))
+}
+
+func (s *server) matchesAccessCode(provided string) bool {
+	return len(provided) == len(s.accessCode) &&
+		subtle.ConstantTimeCompare([]byte(strings.ToLower(provided)), []byte(s.accessCode)) == 1
+}
+
+type accessCodeAttempts struct {
+	mu       sync.Mutex
+	resetAt  time.Time
+	failures map[string]int
+}
+
+func (a *accessCodeAttempts) retryAfter(remoteAddr string, valid bool) time.Duration {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
 	}
-	provided := r.URL.Query().Get("token")
-	return len(provided) == len(s.token) && subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) == 1
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	if !now.Before(a.resetAt) {
+		a.failures = make(map[string]int)
+		a.resetAt = now.Add(time.Minute)
+	}
+	if a.failures[host] >= maxCodeFailures {
+		return a.resetAt.Sub(now)
+	}
+	if !valid {
+		a.failures[host]++
+	}
+	return 0
+}
+
+func (s *server) limitAccessCodeAttempts(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.isProtected() && !isLoopbackRequest(r) {
+			var provided string
+			switch r.URL.Path {
+			case "/", "/download", "/upload":
+				provided = r.URL.Query().Get("token")
+			default:
+				provided = strings.TrimPrefix(r.URL.Path, "/")
+			}
+			if len(provided) == len(s.accessCode) {
+				if delay := s.codeAttempts.retryAfter(r.RemoteAddr, s.matchesAccessCode(provided)); delay > 0 {
+					seconds := (delay + time.Second - 1) / time.Second
+					w.Header().Set("Retry-After", strconv.Itoa(int(seconds)))
+					http.Error(w, "Too many access code attempts. Try again shortly.", http.StatusTooManyRequests)
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *server) isProtected() bool {
@@ -332,16 +394,22 @@ func (s *server) roots() (string, string) {
 
 func (s *server) index(port int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		protected := s.isProtected()
 		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		if !s.authorized(r) {
+			if !protected || !s.matchesAccessCode(strings.TrimPrefix(r.URL.Path, "/")) {
+				http.NotFound(w, r)
+				return
+			}
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+		} else if !s.authorized(r, protected) {
 			http.Error(w, "Invalid or missing sharing link", http.StatusUnauthorized)
 			return
 		}
 		admin := isLoopbackRequest(r) && !s.desktop
-		protected := s.isProtected()
 		root, resolvedRoot := s.roots()
 		files, err := scanFiles(root, resolvedRoot)
 		if err != nil {
@@ -350,7 +418,7 @@ func (s *server) index(port int) http.HandlerFunc {
 		}
 		var addresses []accessAddress
 		if admin {
-			addresses, err = addressesWithQRCodes(port, protected, s.token)
+			addresses, err = addressesWithQRCodes(port, protected, s.accessCode)
 			if err != nil {
 				http.Error(w, "Unable to generate the connection QR code", http.StatusInternalServerError)
 				return
@@ -360,9 +428,10 @@ func (s *server) index(port int) http.HandlerFunc {
 			Files: files, FileCount: len(files), Root: root, Admin: admin, Protected: protected,
 			Addresses: addresses, Status: directoryStatus(r.URL.Query().Get("status")),
 			WeChat: strings.Contains(strings.ToLower(r.UserAgent()), "micromessenger"), UploadToken: s.token,
+			UploadTab: r.URL.Query().Get("tab") == "upload",
 		}
 		if protected {
-			data.AccessToken = s.token
+			data.AccessToken = s.accessCode
 		}
 		if admin {
 			data.AdminToken = s.token
@@ -508,7 +577,7 @@ func (s *server) download(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.authorized(r) {
+	if !s.authorized(r, s.isProtected()) {
 		http.Error(w, "Invalid or missing sharing link", http.StatusUnauthorized)
 		return
 	}
@@ -550,7 +619,7 @@ func (s *server) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.authorized(r) || subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("upload_token")), []byte(s.token)) != 1 {
+	if !s.authorized(r, s.isProtected()) || subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("upload_token")), []byte(s.token)) != 1 {
 		if wantsUploadJSON(r) {
 			writeUploadJSON(w, http.StatusForbidden, "upload-unauthorized", nil)
 			return
@@ -742,11 +811,12 @@ func (s *server) redirectAfterUpload(w http.ResponseWriter, r *http.Request, sta
 		writeUploadJSON(w, code, status, nil)
 		return
 	}
-	query := url.Values{"status": {status}}
-	if s.isProtected() {
-		query.Set("token", s.token)
+	query := url.Values{"status": {status}, "tab": {"upload"}}
+	path := "/"
+	if s.isProtected() && (isLoopbackRequest(r) || s.matchesAccessCode(r.URL.Query().Get("token"))) {
+		path += s.accessCode
 	}
-	http.Redirect(w, r, "/?"+query.Encode(), http.StatusSeeOther)
+	http.Redirect(w, r, path+"?"+query.Encode(), http.StatusSeeOther)
 }
 
 func wantsUploadJSON(r *http.Request) bool {
@@ -1017,6 +1087,19 @@ func withinRoot(root, candidate string) bool {
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
+func randomAccessCode() (string, error) {
+	const alphabet = "23456789abcdefghijkmnpqrstuvwxyz"
+	var code [5]byte
+	if _, err := rand.Read(code[:]); err != nil {
+		return "", err
+	}
+	// The alphabet has 32 characters, so the low five bits select uniformly.
+	for i, value := range code {
+		code[i] = alphabet[value&31]
+	}
+	return string(code[:]), nil
+}
+
 func randomToken() (string, error) {
 	b := make([]byte, 18)
 	if _, err := rand.Read(b); err != nil {
@@ -1252,7 +1335,7 @@ func defaultRouteIP() net.IP {
 	return nil
 }
 
-func accessURLs(port int, protected bool, token string) []string {
+func accessURLs(port int, protected bool, accessCode string) []string {
 	type candidate struct {
 		ip    net.IP
 		score int
@@ -1286,15 +1369,15 @@ func accessURLs(port int, protected bool, token string) []string {
 	for _, candidate := range candidates {
 		u := fmt.Sprintf("http://%s:%d/", candidate.ip.String(), port)
 		if protected {
-			u += "?token=" + url.QueryEscape(token)
+			u += accessCode
 		}
 		urls = append(urls, u)
 	}
 	return urls
 }
 
-func addressesWithQRCodes(port int, protected bool, token string) ([]accessAddress, error) {
-	urls := accessURLs(port, protected, token)
+func addressesWithQRCodes(port int, protected bool, accessCode string) ([]accessAddress, error) {
+	urls := accessURLs(port, protected, accessCode)
 	addresses := make([]accessAddress, 0, len(urls))
 	for _, address := range urls {
 		dataURI, err := qrCodeDataURI(address)
@@ -1369,15 +1452,15 @@ func openBrowser(address string) error {
 
 const stoppedHTML = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>服务已停止 · 方序传文件</title><style>
+<title>服务已停止 · 方序快传</title><style>
 *{box-sizing:border-box}body{display:grid;min-height:100vh;margin:0;padding:24px;place-items:center;background:#f3f4f7;color:#172039;font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif}.card{width:min(100%%,720px);padding:38px 44px;border:1px solid #dfe2e9;border-radius:8px;background:#fff;box-shadow:0 8px 28px rgba(23,32,57,.07);overflow-x:auto;text-align:center}.brand{display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:26px}.logo{display:block;width:104px;height:104px;object-fit:contain}.brand-copy{text-align:left}.product{display:block;font-size:29px;font-weight:780;letter-spacing:-.03em;white-space:nowrap}.tagline{display:block;margin-top:3px;color:#70778a;font-size:13px;font-weight:600;letter-spacing:.12em;white-space:nowrap}.content{padding-top:22px;border-top:1px solid #e7e9ee}.state{display:inline-flex;align-items:center;gap:7px;margin-bottom:12px;color:#2c7250;font-size:13px;font-weight:700;white-space:nowrap}.dot{width:7px;height:7px;border-radius:50%%;background:#319364}h1{margin:0 0 10px;font-size:25px;letter-spacing:-.02em;white-space:nowrap}p{margin:0;color:#70778a;white-space:nowrap}.hint{margin-top:18px;padding-top:16px;border-top:1px solid #e7e9ee;font-size:13px}
-</style></head><body><main class="card"><div class="brand"><img class="logo" src="data:image/png;base64,%s" alt="方序传文件 Logo"><span class="brand-copy"><span class="product">方序传文件</span><span class="tagline">方寸之间，传递有序</span></span></div><div class="content"><div class="state"><span class="dot"></span>已安全停止</div><h1>文件传输服务已完全关闭</h1><p>电脑上的文件已停止共享，其他设备无法再通过原地址访问。</p><p class="hint">你可以放心关闭此页面。下次需要传文件时，再次双击“方序传文件”即可。</p></div></main></body></html>`
+</style></head><body><main class="card"><div class="brand"><img class="logo" src="data:image/png;base64,%s" alt="方序快传 Logo"><span class="brand-copy"><span class="product">方序快传</span><span class="tagline">方寸之间，传递有序</span></span></div><div class="content"><div class="state"><span class="dot"></span>已安全停止</div><h1>文件传输服务已完全关闭</h1><p>电脑上的文件已停止共享，其他设备无法再通过原地址访问。</p><p class="hint">你可以放心关闭此页面。下次需要传文件时，再次双击“方序快传”即可。</p></div></main></body></html>`
 
 const indexHTML = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="方序传文件是一款免费、简洁的局域网文件传输工具，让电脑上的文件通过同一 Wi-Fi 轻松传到手机或平板。">
+<meta name="description" content="方序快传是一款免费、简洁的局域网文件传输工具，让电脑上的文件通过同一 Wi-Fi 轻松传到手机或平板。">
 <link rel="icon" type="image/png" href="/assets/logo.png">
-<title data-i18n="方序传文件">方序传文件</title>
+<title data-i18n="方序快传">方序快传</title>
 <style>
 :root{--bg:#f3f4f7;--card:#fff;--text:#172039;--muted:#70778a;--line:#dfe2e9;--line-strong:#cbd0dc;--accent:#5269c7;--accent-soft:#f0f3ff;--success:#319364;--danger:#a83a3a}
 *{box-sizing:border-box}body{margin:0;padding:20px;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif}
@@ -1408,17 +1491,26 @@ button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-heigh
 
 .upload-panel{display:block;padding:18px 20px}.upload-form{display:block;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}.upload-pickers{display:flex;gap:10px;flex-wrap:wrap}.upload-picker{min-height:44px;padding:10px 16px;gap:20px;font-size:14px}.upload-photo-picker{background:var(--accent-soft);border-color:#b9c5ef}.upload-picker:focus-within{outline:2px solid var(--accent);outline-offset:2px}.upload-picker.is-disabled{opacity:.55;cursor:default}.upload-hint{margin:10px 0;color:var(--muted);font-size:12px;line-height:1.7}.upload-summary{display:flex;align-items:center;justify-content:space-between;gap:12px}.upload-selection{max-width:none;white-space:normal;overflow-wrap:anywhere;font-size:13px}.upload-quiet{min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:5px;background:#fff;color:var(--accent);font:inherit;font-size:13px}.upload-quiet:disabled{opacity:.5}.upload-queue{list-style:none;margin:10px 0 14px;padding:0;max-height:320px;overflow:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:5px}.upload-row{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--line)}.upload-row:last-child{border:0}.upload-preview{position:relative;display:grid;place-items:center;flex:none;width:44px;height:44px;overflow:hidden;border-radius:5px;background:var(--accent-soft);color:var(--accent);font-size:22px}.upload-preview img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.upload-row-details{flex:1;min-width:0;font-size:12px;color:var(--muted)}.upload-row-details strong{display:block;color:var(--text);font-size:13px;overflow-wrap:anywhere}.upload-row-result{display:block;font-size:12px;overflow-wrap:anywhere}.upload-row[data-state="done"] .upload-row-details>span{color:#26734c}.upload-row[data-state="failed"] .upload-row-details>span{color:var(--danger)}.upload-remove{flex:none;width:44px;height:44px;border:0;border-radius:5px;background:transparent;color:var(--muted);font-size:24px}.upload-remove:disabled{opacity:.3}.upload-progress-header{display:flex;justify-content:space-between;color:var(--muted);font-size:12px}#upload-progress{width:100%;height:8px;accent-color:var(--accent);margin:8px 0}.upload-status{margin:8px 0 12px;padding:10px 12px;border-radius:5px;background:var(--accent-soft);font-size:13px;line-height:1.7;overflow-wrap:anywhere}.upload-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.upload-submit{min-height:44px;padding:10px 20px;font-size:14px}.upload-submit:disabled{cursor:default}.upload-actions a{color:var(--accent);font-size:13px;min-height:44px;display:inline-flex;align-items:center}.upload-panel [hidden]{display:none!important}@media(max-width:600px){.upload-panel{padding:16px}.upload-copy{align-items:flex-start}.upload-actions .upload-submit{flex:1}.upload-pickers .upload-picker{flex:1;justify-content:center;gap:10px}.upload-queue{max-height:280px}.upload-form{margin-top:12px;padding-top:12px}}
 .upload-queue-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.upload-queue-tools select{max-width:100%;color:var(--text)}.upload-pages{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 14px}.upload-pages span{color:var(--muted);font-size:12px;text-align:center}.upload-quiet:disabled{cursor:default}#upload-activity{color:var(--text);overflow-wrap:anywhere}#upload-estimate{font-variant-numeric:tabular-nums}
+[hidden]{display:none!important}.transfer-tabs{display:flex;gap:8px;margin:0 0 14px;border-bottom:1px solid var(--line)}.transfer-tabs a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;color:var(--muted);font-size:14px;font-weight:650;text-decoration:none;border-bottom:2px solid transparent}.transfer-tabs a[aria-selected="true"]{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}.transfer-tabs a:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.stop-dialog{width:min(100% - 32px,380px);border:1px solid var(--line);border-radius:12px;padding:24px;color:var(--text);box-shadow:0 12px 45px #17203926}
+.stop-dialog::backdrop{background:#1720394d}
+.stop-dialog h2{font-size:17px;margin:0 0 10px}
+.stop-dialog p{font-size:14px;color:var(--muted);margin:0}
+.stop-dialog-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:20px}
+.stop-dialog-actions button{padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--accent);font-size:14px;font-weight:650}
+.stop-dialog-actions button[type="submit"]{border-color:var(--danger);background:var(--danger);color:#fff}
+.stop-dialog-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 </style></head><body><main>
-<section class="hero"><header class="brand"><a class="brand-home" href="/{{if .Protected}}?token={{.AccessToken | urlquery}}{{end}}" aria-label="方序传文件首页，重置筛选" data-i18n-aria-label="方序传文件首页，重置筛选"><img class="brand-logo" src="/assets/logo.png" alt=""><span class="brand-copy"><h1 data-i18n="方序传文件">方序传文件</h1><span class="tagline" data-i18n="方寸之间，传递有序">方寸之间，传递有序</span></span></a><div class="header-actions"><a class="github-link" href="https://github.com/goldenwind/fangxu-file-transfer" target="_blank" rel="noopener noreferrer" aria-label="GitHub 开源项目" data-i18n-aria-label="GitHub 开源项目"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.4-2.7 5.38-5.28 5.67.42.36.79 1.06.79 2.14v3.18c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg><span data-i18n="GitHub 开源">GitHub 开源</span></a><div class="language-switch" role="group" aria-label="语言 / Language"><button class="language-button" type="button" data-language-button="zh" onclick="setLanguage('zh')">中文</button><button class="language-button" type="button" data-language-button="en" onclick="setLanguage('en')">EN</button></div></div>{{if not .Admin}}<span class="mobile-intro" data-i18n="轻点文件，即可保存到当前设备。">轻点文件，即可保存到当前设备。</span>{{end}}</header>
+<section class="hero"><header class="brand"><a class="brand-home" href="/{{.AccessToken}}" aria-label="方序快传首页，重置筛选" data-i18n-aria-label="方序快传首页，重置筛选"><img class="brand-logo" src="/assets/logo.png" alt=""><span class="brand-copy"><h1 data-i18n="方序快传">方序快传</h1><span class="tagline" data-i18n="方寸之间，传递有序">方寸之间，传递有序</span></span></a><div class="header-actions"><a class="github-link" href="https://github.com/goldenwind/fangxu-file-transfer" target="_blank" rel="noopener noreferrer" aria-label="GitHub 开源项目" data-i18n-aria-label="GitHub 开源项目"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.4-2.7 5.38-5.28 5.67.42.36.79 1.06.79 2.14v3.18c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg><span data-i18n="GitHub 开源">GitHub 开源</span></a><div class="language-switch" role="group" aria-label="语言 / Language"><button class="language-button" type="button" data-language-button="zh" onclick="setLanguage('zh')">中文</button><button class="language-button" type="button" data-language-button="en" onclick="setLanguage('en')">EN</button></div></div>{{if not .Admin}}<span class="mobile-intro" data-i18n="轻点文件，即可保存到当前设备。">轻点文件，即可保存到当前设备。</span>{{end}}</header>
 {{if .WeChat}}<aside class="wechat-warning" role="alert"><strong data-i18n="微信内无法下载文件">微信内无法下载文件</strong><span data-i18n="请点击右上角“···”，选择“在浏览器打开”。iPhone 可使用 Safari，Android 可使用系统浏览器，然后再点击文件下载。">请点击右上角“···”，选择“在浏览器打开”。iPhone 可使用 Safari，Android 可使用系统浏览器，然后再点击文件下载。</span></aside>{{end}}
-{{if .Admin}}<div class="admin-panel"><div class="admin-head"><div class="admin-copy"><h2 data-i18n="电脑端传文件设置">电脑端传文件设置</h2><p><strong data-i18n="连接提醒：">连接提醒：</strong><span data-i18n="让手机或平板与电脑连接同一 Wi-Fi，然后扫描下方二维码。">让手机或平板与电脑连接同一 Wi-Fi，然后扫描下方二维码。</span></p></div><div class="service"><span class="service-state"><span class="service-dot"></span><span data-i18n="服务运行中">服务运行中</span></span><form class="token-control" method="post" action="/security"><input type="hidden" name="admin_token" value="{{.AdminToken}}"><input type="hidden" name="enabled" value="{{if .Protected}}false{{else}}true{{end}}"><span class="token-label" data-i18n="访问令牌保护">访问令牌保护</span><span class="token-help"><button class="token-help-trigger" type="button" aria-label="访问令牌保护说明" data-i18n-aria-label="访问令牌保护说明" aria-describedby="token-help-tip">?</button><span class="token-help-tip" id="token-help-tip" role="tooltip" data-i18n="开启后，访问地址和二维码会加入专属令牌，只有拿到完整链接的人才能查看和下载文件；关闭后，同一局域网内的设备可直接访问。">开启后，访问地址和二维码会加入专属令牌，只有拿到完整链接的人才能查看和下载文件；关闭后，同一局域网内的设备可直接访问。</span></span><button class="token-switch {{if .Protected}}on{{end}}" type="submit" role="switch" aria-checked="{{if .Protected}}true{{else}}false{{end}}" aria-label="{{if .Protected}}关闭访问令牌保护{{else}}开启访问令牌保护{{end}}" data-i18n-aria-label="{{if .Protected}}关闭访问令牌保护{{else}}开启访问令牌保护{{end}}"><span class="token-switch-knob"></span></button></form><form method="post" action="/stop" onsubmit="return confirm(t('确定停止方序传文件服务吗？'))"><input type="hidden" name="stop_token" value="{{.StopToken}}"><button class="stop" type="submit" data-i18n="停止传输服务">停止传输服务</button></form></div></div>
+{{if .Admin}}<div class="admin-panel"><div class="admin-head"><div class="admin-copy"><h2 data-i18n="电脑端传文件设置">电脑端传文件设置</h2><p><strong data-i18n="连接提醒：">连接提醒：</strong><span data-i18n="让手机或平板与电脑连接同一 Wi-Fi，然后扫描下方二维码。">让手机或平板与电脑连接同一 Wi-Fi，然后扫描下方二维码。</span></p></div><div class="service"><span class="service-state"><span class="service-dot"></span><span data-i18n="服务运行中">服务运行中</span></span><form class="token-control" method="post" action="/security"><input type="hidden" name="admin_token" value="{{.AdminToken}}"><input type="hidden" name="enabled" value="{{if .Protected}}false{{else}}true{{end}}"><span class="token-label" data-i18n="访问令牌保护">访问令牌保护</span><span class="token-help"><button class="token-help-trigger" type="button" aria-label="访问令牌保护说明" data-i18n-aria-label="访问令牌保护说明" aria-describedby="token-help-tip">?</button><span class="token-help-tip" id="token-help-tip" role="tooltip" data-i18n="开启后，访问地址和二维码会加入专属令牌，只有拿到完整链接的人才能查看和下载文件；关闭后，同一局域网内的设备可直接访问。">开启后，访问地址和二维码会加入专属令牌，只有拿到完整链接的人才能查看和下载文件；关闭后，同一局域网内的设备可直接访问。</span></span><button class="token-switch {{if .Protected}}on{{end}}" type="submit" role="switch" aria-checked="{{if .Protected}}true{{else}}false{{end}}" aria-label="{{if .Protected}}关闭访问令牌保护{{else}}开启访问令牌保护{{end}}" data-i18n-aria-label="{{if .Protected}}关闭访问令牌保护{{else}}开启访问令牌保护{{end}}"><span class="token-switch-knob"></span></button></form><form id="stop-service-form" method="post" action="/stop"><input type="hidden" name="stop_token" value="{{.StopToken}}"><button class="stop" type="submit" data-i18n="停止传输服务">停止传输服务</button></form></div></div>
 <form class="directory" method="post" action="/directory"><input type="hidden" name="admin_token" value="{{.AdminToken}}"><label for="shared-directory"><span data-i18n="共享目录：">共享目录：</span><span class="directory-note" data-i18n="该目录下的文件可在其他设备访问和下载">该目录下的文件可在其他设备访问和下载</span></label><div class="directory-row"><input id="shared-directory" type="text" name="path" value="{{.Root}}" autocomplete="off" spellcheck="false"><span class="directory-actions"><button type="submit" name="action" value="choose" data-i18n="选择文件夹…">选择文件夹…</button><button class="apply" type="submit" name="action" value="apply" data-i18n="应用路径">应用路径</button></span></div></form>
-<div class="addresses">{{range .Addresses}}<div class="address"><img src="{{.QRCode}}" alt="方序传文件访问二维码" data-i18n-alt="方序传文件访问二维码"><div class="address-info"><span class="address-label" data-i18n="手机访问地址 · 扫码即可打开">手机访问地址 · 扫码即可打开</span><code>{{.URL}}</code><button type="button" data-copy="{{.URL}}" data-i18n="复制地址">复制地址</button></div></div>{{else}}<p data-i18n="未发现局域网 IPv4 地址，请确认电脑已连接 Wi-Fi。">未发现局域网 IPv4 地址，请确认电脑已连接 Wi-Fi。</p>{{end}}</div></div>{{end}}</section>
+<div class="addresses">{{range .Addresses}}<div class="address"><img src="{{.QRCode}}" alt="方序快传访问二维码" data-i18n-alt="方序快传访问二维码"><div class="address-info"><span class="address-label" data-i18n="手机访问地址 · 扫码即可打开">手机访问地址 · 扫码即可打开</span><code>{{.URL}}</code><button type="button" data-copy="{{.URL}}" data-i18n="复制地址">复制地址</button></div></div>{{else}}<p data-i18n="未发现局域网 IPv4 地址，请确认电脑已连接 Wi-Fi。">未发现局域网 IPv4 地址，请确认电脑已连接 Wi-Fi。</p>{{end}}</div></div>{{end}}</section>
 {{if .Status}}<div class="status" role="status" data-i18n="{{.Status}}">{{.Status}}</div>{{end}}
 {{if .Admin}}<section class="support" aria-labelledby="support-title">
       <div class="support-heading">
         <h2 id="support-title" data-i18n="支持与关注">支持与关注</h2>
-        <p data-i18n="方序传文件是一个免费项目。如果它为你带来了便利，欢迎请作者喝杯咖啡。感谢大家的支持，让这个免费项目可以持续维护与改进。">方序传文件是一个免费项目。如果它为你带来了便利，欢迎请作者喝杯咖啡。感谢大家的支持，让这个免费项目可以持续维护与改进。</p>
+        <p data-i18n="方序快传是一个免费项目。如果它为你带来了便利，欢迎请作者喝杯咖啡。感谢大家的支持，让这个免费项目可以持续维护与改进。">方序快传是一个免费项目。如果它为你带来了便利，欢迎请作者喝杯咖啡。感谢大家的支持，让这个免费项目可以持续维护与改进。</p>
       </div>
       <div class="support-grid">
         <div class="support-card">
@@ -1426,7 +1518,7 @@ button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-heigh
           <span class="support-card-copy"><strong class="support-card-title" data-i18n="支付宝赞赏">支付宝赞赏</strong><span class="support-card-note" data-i18n="打开支付宝扫一扫，感谢你的支持。">打开支付宝扫一扫，感谢你的支持。</span></span>
         </div>
         <div class="support-card">
-          <img src="https://cdn.ip21.cn/img/common/wechatpay-qrcode.jpg" alt="微信收款二维码" data-i18n-alt="微信收款二维码" width="116" height="116" loading="lazy">
+          <img src="https://cdn.ip21.cn/img/common/wechat-appreciation.png" alt="微信赞赏二维码" data-i18n-alt="微信赞赏二维码" width="116" height="116" loading="lazy">
           <span class="support-card-copy"><strong class="support-card-title" data-i18n="微信赞赏">微信赞赏</strong><span class="support-card-note" data-i18n="打开微信扫一扫，感谢你的支持。">打开微信扫一扫，感谢你的支持。</span></span>
         </div>
         <div class="support-card support-card-public">
@@ -1436,7 +1528,11 @@ button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-heigh
       </div>
     </section>
 {{end}}
-<section class="upload-panel" aria-labelledby="upload-title">
+<div class="transfer-tabs" role="tablist" aria-label="传输方式" data-i18n-aria-label="传输方式">
+  <a id="download-tab" role="tab" aria-controls="download-panel" aria-selected="{{if .UploadTab}}false{{else}}true{{end}}" href="/{{.AccessToken}}" data-i18n="下载">下载</a>
+  <a id="upload-tab" role="tab" aria-controls="upload-panel" aria-selected="{{if .UploadTab}}true{{else}}false{{end}}" href="/{{.AccessToken}}?tab=upload" data-i18n="上传">上传</a>
+</div>
+<section id="upload-panel" class="upload-panel" role="tabpanel" aria-labelledby="upload-tab"{{if not .UploadTab}} hidden{{end}}>
 <div class="upload-copy"><span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="upload-text"><strong id="upload-title" data-i18n="上传照片和文件到电脑">上传照片和文件到电脑</strong><span class="upload-description" data-i18n="上传到电脑的共享目录 · 同名文件自动保留两份">上传到电脑的共享目录 · 同名文件自动保留两份</span></div></div>
 <form class="upload-form" method="post" enctype="multipart/form-data" action="/upload?upload_token={{.UploadToken | urlquery}}{{if .Protected}}&amp;token={{.AccessToken | urlquery}}{{end}}">
 <div class="upload-pickers"><label class="upload-picker upload-photo-picker"><input id="upload-photos" type="file" name="files" multiple accept="image/*,.heic,.heif"><span data-i18n="选择照片">选择照片</span><span aria-hidden="true">＋</span></label><label class="upload-picker"><input id="upload-files" type="file" name="files" multiple><span data-i18n="选择文件">选择文件</span></label></div>
@@ -1452,13 +1548,30 @@ button,input,select{font:inherit}button{cursor:pointer}main{width:100%;min-heigh
 <div class="upload-actions"><button class="upload-submit" type="submit" data-i18n="开始上传">开始上传</button><button id="upload-pause" class="upload-quiet" type="button" hidden data-i18n="暂停上传">暂停上传</button><a id="upload-refresh" href="#list" hidden data-i18n="查看电脑已收到的文件">查看电脑已收到的文件</a></div>
 <noscript><p class="upload-hint" data-i18n="启用 JavaScript 可逐个上传大量照片、查看进度并重试；未启用时整次上传需小于 10 GB。">启用 JavaScript 可逐个上传大量照片、查看进度并重试；未启用时整次上传需小于 10 GB。</p></noscript>
 </form></section>
+<section id="download-panel" role="tabpanel" aria-labelledby="download-tab"{{if .UploadTab}} hidden{{end}}>
 <div class="toolbar"><input id="search" class="search" type="search" placeholder="搜索文件名或文件夹…" data-i18n-placeholder="搜索文件名或文件夹…" autocomplete="off"><select id="sort" class="sort" aria-label="当前排序方式" data-i18n-aria-label="当前排序方式"><option value="time-desc" data-i18n="时间：从新到旧">时间：从新到旧</option><option value="time-asc" data-i18n="时间：从旧到新">时间：从旧到新</option><option value="name-asc" data-i18n="名称：正序">名称：正序</option><option value="name-desc" data-i18n="名称：倒序">名称：倒序</option></select><span class="count"><b id="visible">{{.FileCount}}</b> / <span id="total">{{.FileCount}}</span></span></div>
 <div class="filter-stack"><div class="filter-level"><span class="filter-label" data-i18n="类型">类型</span><div class="filters" id="category-filters" role="group" aria-label="按文件大类筛选" data-i18n-aria-label="按文件大类筛选"></div></div><div class="filter-level" id="subcategory-level" hidden><span class="filter-label" data-i18n="格式">格式</span><div class="filters subfilters" id="subcategory-filters" role="group" aria-label="进一步按文件格式筛选" data-i18n-aria-label="进一步按文件格式筛选"></div></div></div>
 <div class="batch-toolbar"><label class="select-all"><input id="select-all" type="checkbox"><span data-i18n="全选本页">全选本页</span></label><span id="selected-count" aria-live="polite" data-i18n="已选 0 个">已选 0 个</span><button id="batch-download" type="button" disabled data-i18n="批量下载">批量下载</button><button id="clear-selection" type="button" disabled data-i18n="取消选择">取消选择</button></div><p id="batch-status" class="batch-status" role="status" hidden></p>
 <div class="list" id="list">{{range .Files}}<div class="file-row"><label class="file-select"><input class="file-checkbox" type="checkbox" aria-label="选择 {{.Name}}" data-select-name="{{.Name}}"></label><a class="file" data-key="{{.Path}}" data-name="{{.Path}}" data-time="{{.ModifiedUnix}}" data-filters="{{.FilterTags}}" href="/download?{{if $.Protected}}token={{$.AccessToken | urlquery}}&amp;{{end}}path={{.Path | urlquery}}" download="{{.Name}}"><span class="icon {{.Category}}" data-icon="{{.Icon}}" aria-hidden="true">{{if eq .Icon "pdf"}}<svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.7 16.3v-4.5h1.1a1.15 1.15 0 0 1 0 2.3H7.7M10.5 16.3v-4.5h.9c1.5 0 2.2.85 2.2 2.25s-.7 2.25-2.2 2.25zM14.5 16.3v-4.5h2M14.5 14h1.6" stroke="currentColor" stroke-width=".9" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "word"}}<svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m8.5 11 1.3 5 2.2-3.4 2.2 3.4 1.3-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "spreadsheet"}}<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="1" stroke="currentColor" stroke-width="1.6"/><path d="M4 9h16M9.5 9v11M4 14.5h16M15 9v11" stroke="currentColor" stroke-width="1.35"/></svg>{{else if eq .Icon "presentation"}}<svg viewBox="0 0 24 24" fill="none"><path d="M4 4.5h16v11H4zM12 15.5v4M8.5 19.5h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m8 12 2.5-2.5 2 1.7L16 7.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "text"}}<svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4M8.5 11h7M8.5 14h7M8.5 17h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "markdown"}}<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 15v-6l2.5 3 2.5-3v6M15 9v6m-2-2 2 2 2-2" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "code"}}<svg viewBox="0 0 24 24" fill="none"><path d="m9 7-5 5 5 5M15 7l5 5-5 5M13.5 4.5l-3 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "image"}}<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4.5" width="17" height="15" rx="1.5" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="9.5" r="1.5" fill="currentColor"/><path d="m5.5 17 4-4 3 2.8 2.2-2.3 3.8 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "video"}}<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="1.5" stroke="currentColor" stroke-width="1.7"/><path d="m10 9 5 3-5 3z" fill="currentColor"/></svg>{{else if eq .Icon "audio"}}<svg viewBox="0 0 24 24" fill="none"><path d="M9.5 17V6.5l8-2v10.7M9.5 9l8-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="17" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="15" cy="15.5" r="2.5" stroke="currentColor" stroke-width="1.7"/></svg>{{else if eq .Icon "ebook"}}<svg viewBox="0 0 24 24" fill="none"><path d="M4 5.5c3.2-.7 5.9.1 8 2.2v12c-2.1-2.1-4.8-2.9-8-2.2zM20 5.5c-3.2-.7-5.9.1-8 2.2v12c2.1-2.1 4.8-2.9 8-2.2z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "archive"}}<svg viewBox="0 0 24 24" fill="none"><path d="M5 8h14v11.5H5zM4 4.5h16V8H4zM10 12h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 4.5h4" stroke="currentColor" stroke-width="1.7"/></svg>{{else if eq .Icon "windows"}}<svg viewBox="0 0 24 24" fill="currentColor"><path d="m3.5 5.5 7.5-1v7H3.5zm8.5-1.2 8.5-1.2v8.4H12zM3.5 12.5H11v7l-7.5-1zm8.5 0h8.5v8.4L12 19.7z"/></svg>{{else if eq .Icon "macos"}}<svg viewBox="0 0 24 24" fill="none"><path d="M7 8.5 12 5l5 3.5v7L12 19l-5-3.5zM7 8.5l5 3.5 5-3.5M12 12v7M12 5v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "linux"}}<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="m7 9 3 3-3 3M12 15h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "android"}}<svg viewBox="0 0 24 24" fill="none"><path d="M6 10h12v8.5H6zM8 10a4 4 0 0 1 8 0M8 6 6.5 4M16 6l1.5-2M9 14h.01M15 14h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "ios"}}<svg viewBox="0 0 24 24" fill="none"><rect x="7" y="2.5" width="10" height="19" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 5h3M11 18.5h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{else if eq .Icon "disk-image"}}<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5V8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>{{else if eq .Icon "font"}}<svg viewBox="0 0 24 24" fill="none"><path d="m5 19 7-15 7 15M7.5 14h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Icon "design"}}<svg viewBox="0 0 24 24" fill="none"><path d="m12 3 6.5 6.5L12 21 5.5 9.5zM5.5 9.5H10M14 9.5h4.5M12 21v-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11.5" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg>{{else if eq .Icon "database"}}<svg viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="5.5" rx="7.5" ry="3" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6" stroke="currentColor" stroke-width="1.6"/></svg>{{else}}<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h7l4 4v13h-11zM13.5 3.5v4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="14" r="1" fill="currentColor"/><circle cx="12" cy="14" r="1" fill="currentColor"/><circle cx="15" cy="14" r="1" fill="currentColor"/></svg>{{end}}</span><span class="details"><span class="name">{{.Name}}</span><span class="meta">{{if .Folder}}{{.Folder}} · {{end}}{{.Size}} · {{.Modified}}</span></span><span class="download" data-i18n="下载">下载</span></a></div>{{else}}<div class="empty" data-i18n="共享目录中还没有文件">共享目录中还没有文件</div>{{end}}<div id="filter-empty" class="empty filter-empty" hidden data-i18n="没有符合当前条件的文件">没有符合当前条件的文件</div></div>
-<p class="note" data-i18n="方序传文件 · 文件只在你的局域网内流转，不会上传到云端。请勿将访问地址分享给不信任的人。">方序传文件 · 文件只在你的局域网内流转，不会上传到云端。请勿将访问地址分享给不信任的人。</p>
-</main><script src="/assets/upload.js"></script><script>
+</section>
+<p class="note" data-i18n="方序快传 · 文件只在你的局域网内流转，不会上传到云端。请勿将访问地址分享给不信任的人。">方序快传 · 文件只在你的局域网内流转，不会上传到云端。请勿将访问地址分享给不信任的人。</p>
+</main>
+{{if .Admin}}
+<dialog id="stop-service-dialog" class="stop-dialog" aria-labelledby="stop-service-title" aria-describedby="stop-service-description">
+  <h2 id="stop-service-title" data-i18n="确定停止方序快传服务吗？">确定停止方序快传服务吗？</h2>
+  <p id="stop-service-description" data-i18n="正在进行的上传和下载会中断。">正在进行的上传和下载会中断。</p>
+  <div class="stop-dialog-actions">
+    <button id="cancel-stop-service" type="button" data-i18n="继续传输">继续传输</button>
+    <button type="submit" form="stop-service-form" data-i18n="停止传输服务" autofocus>停止传输服务</button>
+  </div>
+</dialog>
+{{end}}
+<script src="/assets/upload.js"></script><script>
 const translations = {
+  "继续传输": "Keep transferring",
+  "正在进行的上传和下载会中断。": "Active uploads and downloads will be interrupted.",
+  "传输方式": "Transfer mode",
+  "上传": "Upload",
   "电脑正在确认保存": "Confirming save on computer",
   "上传照片和文件到电脑": "Upload photos and files to your computer",
   "上传到电脑的共享目录 · 同名文件自动保留两份": "Saved in the shared folder · Existing files are kept",
@@ -1508,7 +1621,7 @@ const translations = {
 
   "GitHub 开源": "GitHub",
   "GitHub 开源项目": "GitHub repository",
-  "\u65b9\u5e8f\u4f20\u6587\u4ef6": "Fangxu File Transfer",
+  "\u65b9\u5e8f\u5feb\u4f20": "Fangxu File Transfer",
   "\u65b9\u5bf8\u4e4b\u95f4\uff0c\u4f20\u9012\u6709\u5e8f": "FILES IN ORDER, WITHIN REACH",
   "\u8f7b\u70b9\u6587\u4ef6\uff0c\u5373\u53ef\u4fdd\u5b58\u5230\u5f53\u524d\u8bbe\u5907\u3002": "Tap a file to save it to this device.",
   "\u5fae\u4fe1\u5185\u65e0\u6cd5\u4e0b\u8f7d\u6587\u4ef6": "Downloads are unavailable in WeChat",
@@ -1528,7 +1641,7 @@ const translations = {
   "\u590d\u5236\u5730\u5740": "Copy address",
   "\u672a\u53d1\u73b0\u5c40\u57df\u7f51 IPv4 \u5730\u5740\uff0c\u8bf7\u786e\u8ba4\u7535\u8111\u5df2\u8fde\u63a5 Wi-Fi\u3002": "No local IPv4 address found. Make sure this computer is connected to Wi-Fi.",
   "\u652f\u6301\u4e0e\u5173\u6ce8": "Support & follow",
-  "\u65b9\u5e8f\u4f20\u6587\u4ef6\u662f\u4e00\u4e2a\u514d\u8d39\u9879\u76ee\u3002\u5982\u679c\u5b83\u4e3a\u4f60\u5e26\u6765\u4e86\u4fbf\u5229\uff0c\u6b22\u8fce\u8bf7\u4f5c\u8005\u559d\u676f\u5496\u5561\u3002\u611f\u8c22\u5927\u5bb6\u7684\u652f\u6301\uff0c\u8ba9\u8fd9\u4e2a\u514d\u8d39\u9879\u76ee\u53ef\u4ee5\u6301\u7eed\u7ef4\u62a4\u4e0e\u6539\u8fdb\u3002": "Fangxu File Transfer is free. If it saves you time, you can buy the author a coffee. Thank you for helping maintain and improve this project.",
+  "\u65b9\u5e8f\u5feb\u4f20\u662f\u4e00\u4e2a\u514d\u8d39\u9879\u76ee\u3002\u5982\u679c\u5b83\u4e3a\u4f60\u5e26\u6765\u4e86\u4fbf\u5229\uff0c\u6b22\u8fce\u8bf7\u4f5c\u8005\u559d\u676f\u5496\u5561\u3002\u611f\u8c22\u5927\u5bb6\u7684\u652f\u6301\uff0c\u8ba9\u8fd9\u4e2a\u514d\u8d39\u9879\u76ee\u53ef\u4ee5\u6301\u7eed\u7ef4\u62a4\u4e0e\u6539\u8fdb\u3002": "Fangxu File Transfer is free. If it saves you time, you can buy the author a coffee. Thank you for helping maintain and improve this project.",
   "\u652f\u4ed8\u5b9d\u8d5e\u8d4f": "Support via Alipay",
   "\u5fae\u4fe1\u8d5e\u8d4f": "Support via WeChat",
   "\u6253\u5f00\u652f\u4ed8\u5b9d\u626b\u4e00\u626b\uff0c\u611f\u8c22\u4f60\u7684\u652f\u6301\u3002": "Scan with Alipay. Thank you for your support.",
@@ -1553,20 +1666,20 @@ const translations = {
   "\u4e0b\u8f7d": "Download",
   "\u5171\u4eab\u76ee\u5f55\u4e2d\u8fd8\u6ca1\u6709\u6587\u4ef6": "The shared folder is empty",
   "\u6ca1\u6709\u7b26\u5408\u5f53\u524d\u6761\u4ef6\u7684\u6587\u4ef6": "No files match the current filters",
-  "\u65b9\u5e8f\u4f20\u6587\u4ef6 \u00b7 \u6587\u4ef6\u53ea\u5728\u4f60\u7684\u5c40\u57df\u7f51\u5185\u6d41\u8f6c\uff0c\u4e0d\u4f1a\u4e0a\u4f20\u5230\u4e91\u7aef\u3002\u8bf7\u52ff\u5c06\u8bbf\u95ee\u5730\u5740\u5206\u4eab\u7ed9\u4e0d\u4fe1\u4efb\u7684\u4eba\u3002": "Fangxu File Transfer \u00b7 Files stay on your local network and are never uploaded to the cloud. Share access links only with people you trust.",
-  "\u65b9\u5e8f\u4f20\u6587\u4ef6\u9996\u9875\uff0c\u91cd\u7f6e\u7b5b\u9009": "Fangxu File Transfer home, reset filters",
+  "\u65b9\u5e8f\u5feb\u4f20 \u00b7 \u6587\u4ef6\u53ea\u5728\u4f60\u7684\u5c40\u57df\u7f51\u5185\u6d41\u8f6c\uff0c\u4e0d\u4f1a\u4e0a\u4f20\u5230\u4e91\u7aef\u3002\u8bf7\u52ff\u5c06\u8bbf\u95ee\u5730\u5740\u5206\u4eab\u7ed9\u4e0d\u4fe1\u4efb\u7684\u4eba\u3002": "Fangxu File Transfer \u00b7 Files stay on your local network and are never uploaded to the cloud. Share access links only with people you trust.",
+  "\u65b9\u5e8f\u5feb\u4f20\u9996\u9875\uff0c\u91cd\u7f6e\u7b5b\u9009": "Fangxu File Transfer home, reset filters",
   "\u8bbf\u95ee\u4ee4\u724c\u4fdd\u62a4\u8bf4\u660e": "About access token protection",
   "\u5173\u95ed\u8bbf\u95ee\u4ee4\u724c\u4fdd\u62a4": "Disable access token protection",
   "\u5f00\u542f\u8bbf\u95ee\u4ee4\u724c\u4fdd\u62a4": "Enable access token protection",
-  "\u65b9\u5e8f\u4f20\u6587\u4ef6\u8bbf\u95ee\u4e8c\u7ef4\u7801": "Fangxu File Transfer access QR code",
+  "\u65b9\u5e8f\u5feb\u4f20\u8bbf\u95ee\u4e8c\u7ef4\u7801": "Fangxu File Transfer access QR code",
   "\u652f\u4ed8\u5b9d\u6536\u6b3e\u4e8c\u7ef4\u7801": "Alipay payment QR code",
-  "\u5fae\u4fe1\u6536\u6b3e\u4e8c\u7ef4\u7801": "WeChat payment QR code",
+  "\u5fae\u4fe1\u8d5e\u8d4f\u4e8c\u7ef4\u7801": "WeChat appreciation QR code",
   "\u4e00\u706f AI \u5fae\u4fe1\u516c\u4f17\u53f7\u4e8c\u7ef4\u7801": "Yideng AI WeChat QR code",
   "\u641c\u7d22\u6587\u4ef6\u540d\u6216\u6587\u4ef6\u5939\u2026": "Search filenames or folders\u2026",
   "\u5f53\u524d\u6392\u5e8f\u65b9\u5f0f": "Sort order",
   "\u6309\u6587\u4ef6\u5927\u7c7b\u7b5b\u9009": "Filter by file type",
   "\u8fdb\u4e00\u6b65\u6309\u6587\u4ef6\u683c\u5f0f\u7b5b\u9009": "Filter by file format",
-  "\u786e\u5b9a\u505c\u6b62\u65b9\u5e8f\u4f20\u6587\u4ef6\u670d\u52a1\u5417\uff1f": "Stop the Fangxu File Transfer service?",
+  "\u786e\u5b9a\u505c\u6b62\u65b9\u5e8f\u5feb\u4f20\u670d\u52a1\u5417\uff1f": "Stop the Fangxu File Transfer service?",
   "\u5168\u90e8": "All",
   "\u6587\u6863": "Documents",
   "\u56fe\u7247": "Images",
@@ -1615,7 +1728,7 @@ const translations = {
 let currentLanguage='zh';
 function t(key,values={}){return (currentLanguage==='en'?(translations[key]||key):key).replace(/\{([^}]+)\}/g,(_,name)=>values[name]===undefined?'':values[name])}
 function initialLanguage(){try{const saved=localStorage.getItem('fangxu-language');if(saved==='zh'||saved==='en')return saved}catch(_){}return (navigator.language||'zh').toLowerCase().startsWith('zh')?'zh':'en'}
-function setLanguage(language){currentLanguage=language==='en'?'en':'zh';document.documentElement.lang=currentLanguage==='en'?'en':'zh-CN';document.title=t('方序传文件');document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.dataset.i18n,el.dataset.values?JSON.parse(el.dataset.values):{}));['aria-label','alt','placeholder'].forEach(attr=>document.querySelectorAll('[data-i18n-'+attr+']').forEach(el=>el.setAttribute(attr,t(el.getAttribute('data-i18n-'+attr)))));document.querySelectorAll('[data-select-name]').forEach(el=>el.setAttribute('aria-label',t('选择 {name}',{name:el.dataset.selectName})));document.querySelectorAll('[data-language-button]').forEach(button=>{const active=button.dataset.languageButton===currentLanguage;button.classList.toggle('active',active);button.setAttribute('aria-pressed',active)});renderCategories();renderSubcategories();updateSelection();updateUploadSelection();if(!batchRunning)batchDownload.textContent=t('批量下载');try{localStorage.setItem('fangxu-language',currentLanguage)}catch(_){}}
+function setLanguage(language){currentLanguage=language==='en'?'en':'zh';document.documentElement.lang=currentLanguage==='en'?'en':'zh-CN';document.title=t('方序快传');document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.dataset.i18n,el.dataset.values?JSON.parse(el.dataset.values):{}));['aria-label','alt','placeholder'].forEach(attr=>document.querySelectorAll('[data-i18n-'+attr+']').forEach(el=>el.setAttribute(attr,t(el.getAttribute('data-i18n-'+attr)))));document.querySelectorAll('[data-select-name]').forEach(el=>el.setAttribute('aria-label',t('选择 {name}',{name:el.dataset.selectName})));document.querySelectorAll('[data-language-button]').forEach(button=>{const active=button.dataset.languageButton===currentLanguage;button.classList.toggle('active',active);button.setAttribute('aria-pressed',active)});renderCategories();renderSubcategories();updateSelection();updateUploadSelection();if(!batchRunning)batchDownload.textContent=t('批量下载');try{localStorage.setItem('fangxu-language',currentLanguage)}catch(_){}}
 
 const search=document.querySelector('#search'),items=[...document.querySelectorAll('.file')],visible=document.querySelector('#visible'),list=document.querySelector('#list'),sortSelect=document.querySelector('#sort'),categoryFilters=document.querySelector('#category-filters'),subcategoryLevel=document.querySelector('#subcategory-level'),subcategoryFilters=document.querySelector('#subcategory-filters'),filterEmpty=document.querySelector('#filter-empty');
 const normalized=value=>value.normalize('NFKC').toLocaleLowerCase();
@@ -1668,6 +1781,53 @@ const refreshReceivedFiles=async()=>{
   document.querySelector('#total').textContent=items.length;
   renderCategories();renderSubcategories();sortFiles();filterFiles();
 };
-const uploadController=FangxuUpload.mount({t,translatedText,onSaved:refreshReceivedFiles});const updateUploadSelection=()=>uploadController.render();
+const transferTabs = [...document.querySelectorAll('.transfer-tabs [role="tab"]')];
+function selectTransferTab(selected) {
+  for (const tab of transferTabs) {
+    const active = tab === selected;
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+    document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
+  }
+}
+for (const tab of transferTabs) {
+  tab.addEventListener('click', event => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    selectTransferTab(tab);
+  });
+  tab.addEventListener('keydown', event => {
+    let next;
+    if (event.key === 'Home') next = transferTabs[0];
+    if (event.key === 'End') next = transferTabs.at(-1);
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') next = transferTabs.find(other => other !== tab);
+    if (event.key === ' ') next = tab;
+    if (!next) return;
+    event.preventDefault();
+    selectTransferTab(next);
+    next.focus();
+  });
+}
+const downloadTab = document.querySelector('#download-tab');
+selectTransferTab(transferTabs.find(tab => tab.getAttribute('aria-selected') === 'true'));
+const uploadController = FangxuUpload.mount({
+  t, translatedText,
+  onSaved: refreshReceivedFiles,
+  onView: () => selectTransferTab(downloadTab),
+});
+const updateUploadSelection = () => uploadController.render();
 setLanguage(initialLanguage());
+const stopServiceDialog = document.querySelector('#stop-service-dialog');
+if (stopServiceDialog?.showModal) {
+  document.querySelector('#stop-service-form').addEventListener('submit', event => {
+    if (stopServiceDialog.open) return;
+    event.preventDefault();
+    stopServiceDialog.showModal();
+  });
+  document.querySelector('#cancel-stop-service').addEventListener('click', () => stopServiceDialog.close());
+} else if (stopServiceDialog) {
+  document.querySelector('#stop-service-form').addEventListener('submit', event => {
+    if (!window.confirm(t('确定停止方序快传服务吗？'))) event.preventDefault();
+  });
+}
 </script></body></html>`

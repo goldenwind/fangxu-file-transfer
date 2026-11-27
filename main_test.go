@@ -30,7 +30,7 @@ func TestIndexDefaultsToNoTokenAndListsFiles(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status %d", response.Code)
 	}
-	for _, expected := range []string{"旅行 photo.jpg", "照片", "5 B", "方序传文件", "方寸之间，传递有序"} {
+	for _, expected := range []string{"旅行 photo.jpg", "照片", "5 B", "方序快传", "方寸之间，传递有序"} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Errorf("page does not contain %q", expected)
 		}
@@ -111,6 +111,30 @@ func TestLocalControlCanChangeDirectory(t *testing.T) {
 	}
 }
 
+func TestWebTransferTabs(t *testing.T) {
+	s, err := newServer(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		path    string
+		visible string
+		hidden  string
+	}{
+		{"/", "download", "upload"},
+		{"/?tab=upload", "upload", "download"},
+	} {
+		response := httptest.NewRecorder()
+		s.routes(8080).ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		page := response.Body.String()
+		if response.Code != http.StatusOK ||
+			!strings.Contains(page, `aria-labelledby="`+test.visible+`-tab">`) ||
+			!strings.Contains(page, `aria-labelledby="`+test.hidden+`-tab" hidden>`) {
+			t.Errorf("%s: status=%d, expected %s panel visible and %s hidden", test.path, response.Code, test.visible, test.hidden)
+		}
+	}
+}
+
 func TestWebUploadAddsFilesWithoutOverwritingExistingFile(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "资料.txt"), "existing")
@@ -137,7 +161,7 @@ func TestWebUploadAddsFilesWithoutOverwritingExistingFile(t *testing.T) {
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	response := httptest.NewRecorder()
 	s.routes(8080).ServeHTTP(response, request)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?status=uploaded" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?status=uploaded&tab=upload" {
 		t.Fatalf("upload: status=%d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 	for name, want := range map[string]string{"资料.txt": "existing", "资料 (1).txt": "new", "照片.jpg": "image"} {
@@ -408,13 +432,109 @@ func TestLocalSecuritySwitchEnablesTokenProtection(t *testing.T) {
 		t.Fatalf("protected page without token: status %d", unauthorized.Code)
 	}
 	authorized := httptest.NewRecorder()
-	handler.ServeHTTP(authorized, httptest.NewRequest(http.MethodGet, "/?token="+s.token, nil))
+	handler.ServeHTTP(authorized, httptest.NewRequest(http.MethodGet, "/?token="+s.accessCode, nil))
 	if authorized.Code != http.StatusOK {
 		t.Fatalf("protected page with token: status %d", authorized.Code)
 	}
 	if strings.Contains(authorized.Body.String(), "手机访问地址 · 扫码即可打开") {
 		t.Fatal("mobile protected page exposes the PC connection panel")
 	}
+}
+
+func TestProtectedShortLinkUploadAndDownload(t *testing.T) {
+	s, err := newServer(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := s.accessCode
+	if len(code) != 5 || strings.Trim(code, "23456789abcdefghijkmnpqrstuvwxyz") != "" {
+		t.Fatalf("unexpected access code format: %q", code)
+	}
+	handler := s.routes(8080)
+	check := func(path string, want int) *httptest.ResponseRecorder {
+		t.Helper()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != want {
+			t.Fatalf("GET %s: status %d, want %d", path, response.Code, want)
+		}
+		return response
+	}
+	openPage := check("/", http.StatusOK).Body.String()
+	if strings.Contains(openPage, `href="/`+code+`"`) || strings.Contains(openPage, "token="+code+`"`) {
+		t.Fatal("unprotected page exposed the access code")
+	}
+	check("/"+code, http.StatusNotFound)
+
+	s.setProtected(true)
+	check("/?token="+s.token, http.StatusUnauthorized)
+	check("/00000", http.StatusNotFound)
+	check("/"+code+"c8w2rh7", http.StatusNotFound)
+	check("/"+code+"/extra", http.StatusNotFound)
+	page := check("/"+strings.ToUpper(code)+"?tab=upload", http.StatusOK)
+	for _, expected := range []string{
+		`href="/` + code + `?tab=upload"`,
+		`/upload?upload_token=` + s.token + `&amp;token=` + code,
+	} {
+		if !strings.Contains(page.Body.String(), expected) {
+			t.Errorf("protected page did not contain %q", expected)
+		}
+	}
+
+	request := uploadRequest(t, s, "", "hello.txt")
+	request.Header.Del("Accept")
+	request.URL.RawQuery += "&token=" + code
+	upload := httptest.NewRecorder()
+	handler.ServeHTTP(upload, request)
+	location := upload.Header().Get("Location")
+	if upload.Code != http.StatusSeeOther || location != "/"+code+"?status=uploaded&tab=upload" {
+		t.Fatalf("upload: status=%d location=%q", upload.Code, location)
+	}
+	check(location, http.StatusOK)
+	check("/download?path=hello.txt", http.StatusUnauthorized)
+	download := check("/download?path=hello.txt&token="+code, http.StatusOK)
+	if download.Body.String() != "photo data" {
+		t.Fatalf("download: unexpected content %q", download.Body.String())
+	}
+}
+
+func TestProtectedAccessLimitsRepeatedGuessesPerDevice(t *testing.T) {
+	s, err := newServer(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.setProtected(true)
+	handler := s.routes(8080)
+	check := func(path, remoteAddr string, want int) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.RemoteAddr = remoteAddr
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != want {
+			t.Fatalf("GET %s from %s: status %d, want %d", path, remoteAddr, response.Code, want)
+		}
+		return response
+	}
+	if len(s.accessCode) != 5 {
+		t.Fatalf("unexpected code length: %d", len(s.accessCode))
+	}
+	wrongCode := "2" + s.accessCode[1:]
+	if wrongCode == s.accessCode {
+		wrongCode = "3" + s.accessCode[1:]
+	}
+	for i := 0; i < maxCodeFailures/2; i++ {
+		check("/"+wrongCode, "192.0.2.1:2000", http.StatusNotFound)
+		check("/download?token="+wrongCode, "192.0.2.1:2001", http.StatusUnauthorized)
+	}
+	path := "/" + s.accessCode
+	blocked := check(path, "192.0.2.1:2002", http.StatusTooManyRequests)
+	if blocked.Header().Get("Retry-After") == "" {
+		t.Fatal("rate limit response has no retry time")
+	}
+	check(path, "192.0.2.2:2000", http.StatusOK)
+	s.codeAttempts.resetAt = time.Now().Add(-time.Second)
+	check(path, "192.0.2.1:2002", http.StatusOK)
 }
 
 func TestDownloadAndRangeRequest(t *testing.T) {
@@ -480,7 +600,7 @@ func TestPathTraversalIsRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"../secret.txt", "/etc/passwd", ""} {
-		request := httptest.NewRequest(http.MethodGet, "/download?token="+s.token+"&path="+path, nil)
+		request := httptest.NewRequest(http.MethodGet, "/download?path="+path, nil)
 		response := httptest.NewRecorder()
 		s.routes(8080).ServeHTTP(response, request)
 		if response.Code != http.StatusNotFound {
@@ -514,7 +634,7 @@ func TestSymlinkOutsideRootIsNotListedOrDownloaded(t *testing.T) {
 		t.Fatalf("outside symlink was listed: %#v", files)
 	}
 	response := httptest.NewRecorder()
-	s.routes(8080).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/download?token="+s.token+"&path=link.txt", nil))
+	s.routes(8080).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/download?path=link.txt", nil))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("outside symlink status %d", response.Code)
 	}
@@ -588,7 +708,7 @@ func TestHealthAndStopAreLocalOnly(t *testing.T) {
 	if localResponse.Code != http.StatusOK {
 		t.Fatalf("local stop response: status=%d body=%q", localResponse.Code, localResponse.Body.String())
 	}
-	for _, expected := range []string{"文件传输服务已完全关闭", "可以放心关闭此页面", "其他设备无法再通过原地址访问", "data:image/png;base64,", "place-items:center", `class="brand"`, `class="product">方序传文件`, "width:104px;height:104px", "white-space:nowrap"} {
+	for _, expected := range []string{"文件传输服务已完全关闭", "可以放心关闭此页面", "其他设备无法再通过原地址访问", "data:image/png;base64,", "place-items:center", `class="brand"`, `class="product">方序快传`, "width:104px;height:104px", "white-space:nowrap"} {
 		if !strings.Contains(localResponse.Body.String(), expected) {
 			t.Errorf("stop page does not contain %q", expected)
 		}
@@ -636,7 +756,7 @@ func TestHumanSize(t *testing.T) {
 }
 
 func TestAddressesHaveOfflinePNGQRCodes(t *testing.T) {
-	const address = "http://192.168.1.8:8080/?token=test-token"
+	const address = "http://192.168.1.8:8080/b7m9k"
 	dataURI, err := qrCodeDataURI(address)
 	if err != nil {
 		t.Fatal(err)
@@ -663,7 +783,7 @@ func TestAddressesHaveOfflinePNGQRCodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{address, prefix, "手机访问地址 · 扫码即可打开"} {
+	for _, expected := range []string{address, `data-copy="` + address + `"`, prefix, "手机访问地址 · 扫码即可打开"} {
 		if !strings.Contains(rendered.String(), expected) {
 			t.Errorf("rendered page does not contain %q", expected)
 		}

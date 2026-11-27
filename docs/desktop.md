@@ -1,10 +1,10 @@
 # 桌面客户端开发
 
-桌面壳层参考 `fangxu-desktop-app-starter`，采用 Tauri 2、Rust、Vite 和原生 JavaScript。没有会员、账号、支付或额度限制。Go 继续负责局域网文件浏览、上传和下载。
+桌面壳层参考 `fangxu-desktop-app-starter`，采用 Tauri 2、Rust、Vite 和原生 JavaScript。Go 负责局域网文件浏览、上传和下载，局域网传输没有会员、账号、支付或额度限制。
 
 ## 运行
 
-安装 Node.js 22.12+、Rust stable、Go 1.22+，以及 [Tauri 对应平台的构建依赖](https://v2.tauri.app/start/prerequisites/)。
+安装 Node.js 22.12+、Rust stable、Go 1.22+，以及 [Tauri 对应平台的构建依赖](https://v2.tauri.app/start/prerequisites/)。Linux 桌面需支持 AppIndicator 托盘菜单。
 
 ```sh
 npm ci
@@ -35,13 +35,33 @@ npm run desktop:build -- --no-bundle
 python scripts/collect-release.py --platform Windows-x64 --portable-only
 ```
 
-输出为 `release-assets/Fangxu-File-Transfer-<版本>-Windows-x64-portable.zip`，包含同目录的「方序传文件.exe」、`fangxu-transfer-service.exe`、中英文使用说明和许可证。主程序使用已有软件图标；用户完整解压后双击主程序即可启动，无需安装本软件。ZIP 使用 `build.rs` 生成的 x86_64 MSVC 传输组件，打包前检查必需文件，避免生成缺少组件的分发包。
+输出为 `release-assets/Fangxu-File-Transfer-<版本>-Windows-x64-portable.zip`，包含同目录的「方序快传.exe」、`fangxu-transfer-service.exe`、中英文使用说明和许可证。主程序使用已有软件图标；用户完整解压后双击主程序即可启动，无需安装本软件。ZIP 使用 `build.rs` 生成的 x86_64 MSVC 传输组件，打包前检查必需文件，避免生成缺少组件的分发包。
 
 免安装版依赖系统已安装的 [WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。若缺少，可从微软安装 Evergreen Runtime，或使用本软件的安装版。配置仍写入下面的用户配置目录，与安装版共用，不随解压文件夹移动。
 
 桌面版支持 macOS 12.3+、Windows 10 / 11（WebView2）和安装了 WebKitGTK 4.1 的 Linux。各平台安装包在对应系统上构建。CI 为 macOS Intel / Apple Silicon、Windows x64、Linux x64 / ARM64 安装包配置了测试与 artifact 上传，Windows 同时提供免安装 ZIP。推送与应用版本一致的 `v*` 标签（例如 `v1.1.4`）后，全部平台构建通过才发布 GitHub Release，安装版与免安装版均附带 SHA256 校验文件；手动运行仅构建产物，除非所选 ref 本身是版本标签。签名、公证需发布者提供证书。
 
 发布前同步 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 中本应用的版本及 `src-tauri/tauri.conf.json`，更新中英文 README 和 `docs/release-notes.md`。保留锁文件中其他依赖的版本。标签对应提交应包含全部代码和文档；发布产物由 `scripts/collect-release.py` 按版本和平台命名。
+
+## 局域网互传
+
+选择侧栏的「局域网互传」，启动服务后用同一局域网内的设备扫码，或在浏览器打开「其他设备访问地址」，即可上传和下载文件。「共享目录」显示当前路径，选择文件夹或输入路径后按回车会立即保存并切换目录。页面上的「传输设置」可调整监听端口、访问令牌保护和自动启动选项。
+
+## 公网在线传
+
+在客户端侧栏选择「公网在线传」，再选择文本、文件、投屏或摄像头。接收方可在浏览器打开轻松传取件链接或扫描二维码。
+
+- 文件每次最多选择 10 个。创建取件码会向轻松传发送文件名和大小，文件内容通过 WebRTC 数据通道发送。
+- 文本最多 50,000 个 UTF-16 代码单元。轻松传在有效期内保存文本，持有链接的人可在浏览器查看，页面会显示过期时间。
+- 屏幕和摄像头通过 WebRTC 实时发送，一次支持一位接收方。选择屏幕或窗口，或允许摄像头访问后，客户端会显示本地预览。可选系统声音取决于系统和 WebView，摄像头模式可选麦克风。
+
+文件和实时画面在接收期间需要保持客户端在线。「结束分享」会关闭连接并停止采集。匿名发送端通过轻松传信令服务和 STUN 尝试建立连接，网络需要 TURN 中继时可能连接失败。页面根据实际选中的 ICE 候选对显示 P2P 直传、TURN 中继或尚未识别。轻松传网页接口可能随服务更新而变化。
+
+## 网盘发送
+
+在侧栏选择「网盘发送」，再选择百度网盘、夸克网盘、阿里云盘、腾讯微云、迅雷云盘、天翼云盘、移动云盘、123 云盘或 115 网盘。前八项按[艾媒咨询 2026 年中国个人网盘使用调查](https://www.iimedia.cn/c400/111846.html)的使用比例排序，调查图表未列出的 115 网盘放在末尾。
+
+在官方页面登录后上传文件，可用网盘自带的分享功能生成链接。macOS 直接在主窗口显示网页，Windows 和 Linux 可在应用的独立窗口打开。需要使用系统浏览器登录时，点击「在浏览器打开」。
 
 ## 手机照片上传
 
@@ -53,7 +73,7 @@ Go 通过 `go:embed` 将 `web/upload.js` 打包到传输组件，并在 `/assets
 
 前端队列、分页、容量和重试验证在 `test/upload.test.js`；上传确认、令牌保护、失败清理、并发重试及 5,000 文件上传验证在 `upload_test.go`。
 
-图标的唯一设计源文件为 `assets/fangxu-file-transfer-app-icon.svg`，采用软件界面的柔和蓝色主色（`--accent: #5269c7`）作为背景、浅蓝白（`--accent-soft: #f0f3ff`）作为图形颜色，保留文件传到手机的标识。运行 `npm run desktop:icons`，生成 1024px PNG 和 `src-tauri/icons/` 中各平台所需的 PNG、ICNS 与 ICO；兼容旧路径的 `assets/fangxu-file-transfer-logo.png` 同步生成相同内容。桌面界面、网页 Logo 与 favicon、macOS 应用与 Dock、DMG、Windows 主程序、NSIS 安装与卸载程序及免安装版共用此设计。界面按原比例显示完整图标，不放大裁切。桌面打包前自动重新生成图标，避免设计稿与分发资源不一致。
+图标的唯一设计源文件为 `assets/fangxu-file-transfer-app-icon.svg`，沿用方序 PDF 的蓝色圆角底和浅蓝折角，在白色文件上加入双向箭头。运行 `npm run desktop:icons`，生成 1024px PNG 和 `src-tauri/icons/` 中各平台所需的 PNG、ICNS 与 ICO；兼容旧路径的 `assets/fangxu-file-transfer-logo.png` 同步生成相同内容。桌面界面、网页 Logo 与 favicon、系统托盘、macOS 应用与 Dock、DMG、Windows 主程序、NSIS 安装与卸载程序及免安装版共用此设计。界面按原比例显示完整图标，不放大裁切。桌面打包前自动重新生成图标，避免设计稿与分发资源不一致。
 
 客户端配色与浏览器传文件页面一致。右上角提供 GitHub 链接，使用系统浏览器打开；“中文 / EN”切换覆盖导航、状态、设置和帮助；语言选择保存在本机，重新打开后恢复，切换语言不会重置未保存的设置。
 
@@ -65,7 +85,7 @@ Rust 在客户端原生初始化阶段立即启动内置 Go 子进程，不依�
 
 Go 的桌面模式在服务停止后保持待命，因此可以在同一窗口反复启动。目录和保护设置可以立即应用；运行中修改端口会被拒绝。每次启动服务重新生成访问令牌，开启令牌保护后应分享最新二维码。停止服务立即关闭连接并中断当前传输。
 
-关闭主窗口或退出应用时 Rust 关闭子进程输入管道；Go 读到 EOF 会关闭监听并释放单实例锁。桌面进程崩溃也会关闭管道。重复打开客户端会聚焦已有窗口；如果旧版命令行服务已启动，客户端会提示先关闭原服务，不接管其他进程。
+关闭主窗口会将客户端收起到系统托盘，传输服务继续运行。可从托盘菜单恢复窗口，或选择「退出」关闭应用与传输服务。退出应用时 Rust 关闭子进程输入管道，Go 读到 EOF 后关闭监听并释放单实例锁。桌面进程崩溃也会关闭管道。重复打开客户端会聚焦已有窗口。如果旧版命令行服务已启动，客户端会提示先关闭原服务。
 
 Go 子程序由 `src-tauri/build.rs` 按 Cargo 的目标平台自动编译，使用 Tauri 的 [`externalBin` sidecar 打包](https://v2.tauri.app/develop/sidecar/)方式。安装后用户无需安装 Go、Rust 或 Node.js。Windows 子进程隐藏控制台窗口。
 
@@ -74,6 +94,8 @@ Go 子程序由 `src-tauri/build.rs` 按 Cargo 的目标平台自动编译，使
 设置位于 Tauri 的 `app_config_dir()/settings.json`：macOS 通常为 `~/Library/Application Support/com.fangxu.file-transfer/`，Windows 为 `%APPDATA%/com.fangxu.file-transfer/`，Linux 为 `$XDG_CONFIG_HOME/com.fangxu.file-transfer/` 或 `~/.config/com.fangxu.file-transfer/`。
 
 默认目录为用户的 Downloads，端口为 0（自动选择），令牌保护默认关闭，自动启动默认开启；已有用户保存的自动启动偏好优先。目录不存在时仍可打开客户端并重新选择；不会替用户创建或分享新的目录。设置中的启动选项、端口和保护状态持久化，访问令牌不会写入设置文件。
+
+客户端启动时立即检查当前共享目录的读取权限，关闭自动启动传输服务时也会检查。macOS 在首次访问受保护的目录时可能弹出系统授权提示。切换到新目录时也会检查权限。
 
 所有本机操作由明确的 Rust 命令处理；前端不具备任意 shell 执行权限。远程文件页面由浏览器打开，不嵌入有本机命令权限的 WebView。HTTP 仅适用于可信局域网，令牌保护不提供传输加密。
 

@@ -1,4 +1,4 @@
-# 方序传文件（Fangxu File Transfer）
+# 方序快传（Fangxu File Transfer）
 
 **简体中文** | [English](./README_EN.md)
 
@@ -11,14 +11,21 @@
 
 适合电脑与手机互传照片、文档、电子书、视频和安装包，以及同一 Wi-Fi 下临时分享资料。
 
+## 选择传输方式
+
+- **局域网互传**：设备连接同一 Wi-Fi 或局域网，手机用浏览器扫码上传和下载，文件在设备间直接传输。
+- **公网在线传**：通过轻松传分享文本、文件，或实时共享屏幕与摄像头。收件人用浏览器打开链接。传文件或共享画面时，发送端需保持在线。
+- **大文件中转**：上传到选定的第三方服务，收件人可在有效期内下载。大小上限与有效期由各服务决定。
+- **网盘发送和微信网页传输**：使用已有网盘账号分享长期保存的文件，或扫码登录微信文件传输助手收发内容。
+
 ## 下载
 
 从 [GitHub Releases 下载最新桌面客户端](https://github.com/goldenwind/fangxu-file-transfer/releases/latest)。桌面版使用 Tauri 2，安装包内包含传输组件，无需另外安装 Go；各平台安装包由 GitHub Actions 自动构建，并附带 `SHA256SUMS.txt` 校验文件。
 
 | 系统                        | 下载文件                                    | 启动方式                                             |
 | --------------------------- | ------------------------------------------- | ---------------------------------------------------- |
-| Windows x86-64              | `.exe` 安装程序 | 安装后启动「方序传文件」 |
-| Windows x86-64（免安装）     | `Windows-x64-portable.zip` | 完整解压后双击「方序传文件.exe」 |
+| Windows x86-64              | `.exe` 安装程序 | 安装后启动「方序快传」 |
+| Windows x86-64（免安装）     | `Windows-x64-portable.zip` | 完整解压后双击「方序快传.exe」 |
 | macOS 12.3+ Intel / Apple Silicon | 各架构独立的 `.dmg` | 拖入应用程序后启动 |
 | Linux x86-64                | `.deb` / `.AppImage` | 安装后启动，或执行 AppImage |
 | Linux ARM64                 | `.deb` | 安装后启动 |
@@ -29,11 +36,11 @@ Windows 免安装版请保留解压目录里的 `fangxu-transfer-service.exe`，
 
 ## 快速上手
 
-1. 在电脑上打开「方序传文件」客户端，默认自动启动服务，共享当前用户的 `Downloads`。
-2. 在「传输设置」中选择共享目录并保存；可设置固定端口、访问令牌保护，也可关闭「打开客户端时启动服务」。
+1. 在电脑上打开「方序快传」客户端，默认自动启动服务，共享当前用户的 `Downloads`。
+2. 在「共享目录」中选择文件夹，或输入路径后按回车，目录会立即切换。「传输设置」直接显示端口、访问令牌保护和自动启动选项。
 3. 手机与电脑连接同一 Wi-Fi；如果服务已停止，在客户端点击「启动服务」。多人网络中请开启「访问令牌保护」。
-4. 手机扫码，用系统浏览器打开页面，点击文件下载，或点击「选择照片」在相册中多选，确认列表后开始上传到电脑。
-5. 传完后在客户端点击「停止服务」，或退出客户端，服务会自动关闭。
+4. 手机扫码，或在同一局域网内的另一台设备上打开「其他设备访问地址」。在浏览器中点击文件可下载，点击「选择照片」可从相册上传到电脑。
+5. 传完后可点击「停止服务」，也可在托盘菜单选择「退出」。关闭主窗口会收起到托盘，传输服务继续运行。
 
 ```text
 电脑共享目录 <──同一 Wi-Fi / HTTP──> 手机或平板浏览器
@@ -93,7 +100,7 @@ Windows 免安装版请保留解压目录里的 `fangxu-transfer-service.exe`，
 
 ## 产品反馈
 
-在客户端左侧底部点击「产品反馈」，会在应用内的独立窗口打开反馈页面；也可直接打开 [方序传文件反馈页](https://api.ip21.cn/products/10/feedback)。客户端入口会自动携带软件版本、操作系统、系统版本和 CPU 架构，方便排查问题。网页完成公众号登录后，可以提交问题分类、标题、复现描述、截图和可选联系邮箱。文件传输始终免费，无需账号或会员；反馈入口不会自动上传共享文件。也欢迎在 [GitHub Issues](https://github.com/goldenwind/fangxu-file-transfer/issues) 提交建议。
+在客户端左侧底部点击「产品反馈」，会在应用内的独立窗口打开反馈页面；也可直接打开 [方序快传反馈页](https://api.ip21.cn/products/10/feedback)。客户端入口会自动携带软件版本、操作系统、系统版本和 CPU 架构，方便排查问题。网页完成公众号登录后，可以提交问题分类、标题、复现描述、截图和可选联系邮箱。文件传输始终免费，无需账号或会员；反馈入口不会自动上传共享文件。也欢迎在 [GitHub Issues](https://github.com/goldenwind/fangxu-file-transfer/issues) 提交建议。
 
 重复打开反馈入口会保留当前窗口的登录状态和填写内容；关闭反馈窗口不会停止文件传输。详见 [产品反馈说明](./docs/feedback.md)。
 
@@ -101,7 +108,7 @@ Windows 免安装版请保留解压目录里的 `fangxu-transfer-service.exe`，
 
 ## ☕ 支持与关注
 
-方序传文件会一直保持免费、开源。如果它帮你省下了时间，欢迎请作者喝杯咖啡、给项目一个 Star，或分享给需要在电脑与手机间传文件的朋友。
+方序快传会一直保持免费、开源。如果它帮你省下了时间，欢迎请作者喝杯咖啡、给项目一个 Star，或分享给需要在电脑与手机间传文件的朋友。
 
 <table>
   <tr>
@@ -171,19 +178,19 @@ go build -o fangxu-file-transfer .
 
 | 平台 ↔ 平台                   | 浏览器方案                                                | 安装软件方案                                                                                   |
 | ------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Windows ↔ Android             | **方序传文件**：电脑启动，手机浏览器上传 / 下载     | [Quick Share](https://support.google.com/android/answer/13801258?hl=zh-Hans)、数据线、LocalSend |
-| Windows ↔ iPhone / iPad       | **方序传文件**：电脑启动，Safari 上传 / 下载        | LocalSend；长期共享用 SMB                                                                      |
-| Windows ↔ macOS / Linux       | **方序传文件**：任一端启动，另一端浏览器上传 / 下载 | LocalSend；长期共享用 SMB / NAS                                                                |
-| macOS ↔ Android               | **方序传文件**：Mac 启动，手机浏览器上传 / 下载     | LocalSend；长期共享用 SMB                                                                      |
-| macOS ↔  iPhone / iPad       | **方序传文件**：Mac 启动，Safari 上传 / 下载        | [AirDrop（隔空投送）](https://support.apple.com/zh-cn/119857)、LocalSend                        |
-| macOS ↔ Linux                 | **方序传文件**：任一端启动，另一端浏览器上传 / 下载 | LocalSend；长期共享用 SMB / NAS                                                                |
-| Linux ↔ Android               | **方序传文件**：电脑启动，手机浏览器上传 / 下载     | 数据线、LocalSend                                                                              |
-| Linux ↔ iPhone / iPad         | **方序传文件**：电脑启动，Safari 上传 / 下载        | LocalSend；长期共享用 SMB                                                                      |
+| Windows ↔ Android             | **方序快传**：电脑启动，手机浏览器上传 / 下载     | [Quick Share](https://support.google.com/android/answer/13801258?hl=zh-Hans)、数据线、LocalSend |
+| Windows ↔ iPhone / iPad       | **方序快传**：电脑启动，Safari 上传 / 下载        | LocalSend；长期共享用 SMB                                                                      |
+| Windows ↔ macOS / Linux       | **方序快传**：任一端启动，另一端浏览器上传 / 下载 | LocalSend；长期共享用 SMB / NAS                                                                |
+| macOS ↔ Android               | **方序快传**：Mac 启动，手机浏览器上传 / 下载     | LocalSend；长期共享用 SMB                                                                      |
+| macOS ↔  iPhone / iPad       | **方序快传**：Mac 启动，Safari 上传 / 下载        | [AirDrop（隔空投送）](https://support.apple.com/zh-cn/119857)、LocalSend                        |
+| macOS ↔ Linux                 | **方序快传**：任一端启动，另一端浏览器上传 / 下载 | LocalSend；长期共享用 SMB / NAS                                                                |
+| Linux ↔ Android               | **方序快传**：电脑启动，手机浏览器上传 / 下载     | 数据线、LocalSend                                                                              |
+| Linux ↔ iPhone / iPad         | **方序快传**：电脑启动，Safari 上传 / 下载        | LocalSend；长期共享用 SMB                                                                      |
 | Android ↔ Android             | Android 文件管理器内置“无线传文件“                      | Quick Share、LocalSend                                                                         |
 | Android ↔ iPhone / iPad       | Android 文件管理器内置“无线传文件“                      | LocalSend                                                                                      |
 | iPhone / iPad ↔ iPhone / iPad | -                                                         | [AirDrop（隔空投送）](https://support.apple.com/zh-cn/119857)、LocalSend                        |
 
-**同一可信局域网中，接收端只想用浏览器时，推荐本项目的 HTTP 方案：[下载方序传文件](https://github.com/goldenwind/fangxu-file-transfer/releases/latest)。**
+**同一可信局域网中，接收端只想用浏览器时，推荐本项目的 HTTP 方案：[下载方序快传](https://github.com/goldenwind/fangxu-file-transfer/releases/latest)。**
 
 电脑共享目录，其他设备通过浏览器直接上传、下载；传完即可停止服务。
 

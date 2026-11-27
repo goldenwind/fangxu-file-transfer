@@ -24,7 +24,7 @@ https://api.ip21.cn/products/10/feedback#app_version=1.1.4&os=macos&os_version=1
 
 ## ECS 配置
 
-- 产品：`方序传文件`，ID：`10`，状态：启用。
+- 产品登记名称：`方序快传`，ID：`10`，状态：启用。
 - 产品标识：`fangxu_file_transfer`。
 - 登记脚本：[register-product.sql](./deploy/register-product.sql)，幂等执行，仅写入产品表，不创建会员或售价记录。
 - 服务沿用 `gf_api` 的产品反馈模块，页面模板为 `resource/template/feedback/product.tpl`。

@@ -1,4 +1,4 @@
-# Fangxu File Transfer（方序传文件）
+# Fangxu File Transfer（方序快传）
 
 [简体中文](./README.md) | **English**
 
@@ -9,6 +9,13 @@ A free, open-source **cross-platform LAN file transfer tool**. Share a folder fr
 
 Use it to transfer photos, documents, ebooks, videos and installers between your computer and phone, or temporarily share files over the same Wi-Fi network. The desktop client and file browser both support Chinese and English, with a language switch in the top-right corner.
 
+## Choose a transfer mode
+
+- **LAN Transfer** shares files directly between devices on the same network. Scan the QR code to upload and download in a mobile browser.
+- **Online Transfer** shares text and files or streams your screen or camera through EasyChuan. Recipients open the link in a browser. Keep the sender online for file transfers and live streams.
+- **Large File Relay** uploads files to a selected third-party service for later pickup. File limits and retention vary by provider.
+- **Cloud Drive and WeChat File Transfer** open the providers’ official services for sharing through your existing accounts.
+
 ## Download
 
 [Download the latest desktop release](https://github.com/goldenwind/fangxu-file-transfer/releases/latest). Built with Tauri 2, each installer includes the Go transfer component. GitHub Actions builds the platform packages and publishes `SHA256SUMS.txt` for verification.
@@ -16,7 +23,7 @@ Use it to transfer photos, documents, ebooks, videos and installers between your
 | System | Package | Launch |
 | --- | --- | --- |
 | Windows x86-64 | `.exe` installer | Install and launch Fangxu File Transfer |
-| Windows x86-64 (portable) | `Windows-x64-portable.zip` | Extract fully and double-click `方序传文件.exe` |
+| Windows x86-64 (portable) | `Windows-x64-portable.zip` | Extract fully and double-click `方序快传.exe` |
 | macOS 12.3+ Intel / Apple Silicon | Separate `.dmg` for each architecture | Drag to Applications and launch |
 | Linux x86-64 | `.deb` / `.AppImage` | Install or run AppImage |
 | Linux ARM64 | `.deb` | Install and launch |
@@ -28,10 +35,10 @@ For the Windows portable edition, keep `fangxu-transfer-service.exe` beside the 
 ## Quick start
 
 1. Open the desktop client. The service starts automatically by default, sharing your user's `Downloads`.
-2. Save a shared folder in Settings (`传输设置`). Set a port or token protection, or disable service auto-start.
+2. Choose a Shared Folder or enter a path and press Enter. The folder changes immediately. Transfer Settings shows the port, token protection and auto-start options.
 3. Connect your devices to the same Wi-Fi. If the service is stopped, click Start service (`启动服务`). Enable token protection on networks shared with others.
-4. Scan the QR code on your phone and open it in the system browser. Tap a file to download, or tap **Choose photos**, select photos from your library, review the queue and start uploading to your computer.
-5. Click Stop service (`停止服务`) when finished, or quit the client to stop sharing automatically.
+4. Scan the QR code on your phone or open **Link for Other Devices** in a browser on the same network. Tap a file to download, or tap **Choose photos**, select photos from your library, review the queue and start uploading to your computer.
+5. Click Stop service when finished, or select Quit in the tray menu. Closing the main window keeps the transfer service running in the tray.
 
 ```text
 Computer folder <──same Wi-Fi / HTTP──> Phone or tablet browser
@@ -104,7 +111,7 @@ Fangxu File Transfer will remain free and open source. If it saves you time, you
 <table>
   <tr>
     <td align="center" width="33%"><strong>Alipay</strong><br><br><img src="https://cdn.ip21.cn/img/common/alipay-qrcode.jpg" width="160" alt="Alipay donation QR code"></td>
-    <td align="center" width="33%"><strong>WeChat Pay</strong><br><br><img src="./assets/donation/wechat-appreciation.png" width="160" alt="WeChat Pay donation QR code"></td>
+    <td align="center" width="33%"><strong>WeChat</strong><br><br><img src="./assets/donation/wechat-appreciation.png" width="160" alt="WeChat appreciation QR code"></td>
     <td align="center" width="33%"><strong>Follow Yideng AI (一灯 AI)</strong><br><br><img src="https://cdn.ip21.cn/img/common/wechat-pub.png" width="160" alt="Yideng AI WeChat official account QR code"></td>
   </tr>
 </table>

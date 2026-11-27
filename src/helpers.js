@@ -9,7 +9,3 @@ export function readSettings({ directory, port, protected: protectedValue, autoS
   if (!/^\d+$/.test(rawPort) || Number(rawPort) > 65535) throw new Error('端口必须为 0 到 65535，0 表示自动分配');
   return { directory: path, port: Number(rawPort), protected: Boolean(protectedValue), autoStart: Boolean(autoStart) };
 }
-
-export function settingsEqual(a, b) {
-  return a.directory === b.directory && a.port === b.port && a.protected === b.protected && a.autoStart === b.autoStart;
-}

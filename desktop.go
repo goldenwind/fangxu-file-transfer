@@ -123,14 +123,41 @@ func (c *desktopController) refresh() {
 	}
 }
 
+func resolveDesktopDirectory(path string) (string, error) {
+	abs, resolved, err := resolveDirectory(path)
+	if err == nil {
+		// Reading the directory triggers the OS access check that metadata lookup can skip.
+		var directory *os.File
+		directory, err = os.Open(resolved)
+		if err == nil {
+			defer directory.Close()
+			_, err = directory.Readdirnames(1)
+			if errors.Is(err, io.EOF) {
+				err = nil // Empty folders are shareable.
+			}
+		}
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return "", fmt.Errorf("没有共享目录的访问权限，请在系统设置中授权或重新选择目录: %w", err)
+	}
+	if err != nil {
+		return "", fmt.Errorf("共享目录不可用，请重新选择: %w", err)
+	}
+	return abs, nil
+}
+
 func (c *desktopController) start() error {
 	c.refresh()
 	if c.httpServer != nil {
 		return nil
 	}
-	handler, err := newServer(c.settings.Directory)
+	root, err := resolveDesktopDirectory(c.settings.Directory)
 	if err != nil {
-		return fmt.Errorf("共享目录不可用，请重新选择: %w", err)
+		return err
+	}
+	handler, err := newServer(root)
+	if err != nil {
+		return err
 	}
 	claim, existing, err := acquireInstance(c.statePath, 3*time.Second)
 	if err != nil {
@@ -183,18 +210,23 @@ func (c *desktopController) configure(settings desktopSettings) error {
 	if c.httpServer != nil && settings.Port != c.settings.Port {
 		return errors.New("请停止服务后再修改端口")
 	}
-	abs, _, err := resolveDirectory(settings.Directory)
-	if err != nil {
-		return fmt.Errorf("共享目录不可用: %w", err)
+	directoryChanged := settings.Directory != c.settings.Directory
+	if directoryChanged {
+		abs, err := resolveDesktopDirectory(settings.Directory)
+		if err != nil {
+			return err
+		}
+		settings.Directory = abs
 	}
-	settings.Directory = abs
 	if err := saveDesktopSettings(c.configPath, settings); err != nil {
 		return fmt.Errorf("保存设置失败: %w", err)
 	}
 	if c.handler != nil {
-		if err := c.handler.setRoot(abs); err != nil {
-			_ = saveDesktopSettings(c.configPath, c.settings)
-			return err
+		if directoryChanged {
+			if err := c.handler.setRoot(settings.Directory); err != nil {
+				_ = saveDesktopSettings(c.configPath, c.settings)
+				return err
+			}
 		}
 		c.handler.setProtected(settings.Protected)
 	}
@@ -210,7 +242,7 @@ func (c *desktopController) status() desktopStatus {
 		return status
 	}
 	status.LocalURL = fmt.Sprintf("http://127.0.0.1:%d/", c.port)
-	addresses, err := addressesWithQRCodes(c.port, c.handler.isProtected(), c.handler.token)
+	addresses, err := addressesWithQRCodes(c.port, c.handler.isProtected(), c.handler.accessCode)
 	if err != nil {
 		status.Error = fmt.Sprintf("生成二维码失败: %v", err)
 		return status
@@ -236,9 +268,12 @@ func runDesktop(input io.Reader, output io.Writer, configPath string) error {
 	c := &desktopController{settings: settings, configPath: configPath, statePath: statePath}
 	defer c.stop()
 	if settings.AutoStart {
-		if err := c.start(); err != nil {
-			c.lastError = err.Error()
-		}
+		err = c.start()
+	} else {
+		_, err = resolveDesktopDirectory(settings.Directory)
+	}
+	if err != nil {
+		c.lastError = err.Error()
 	}
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), 64*1024)
